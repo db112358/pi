@@ -471,6 +471,49 @@ describe("CombinedAutocompleteProvider", () => {
 			const values = result?.items.map((item) => item.value);
 			assert.ok(values?.includes("./src/"), `Expected ./src/ in ${JSON.stringify(values)}`);
 		});
+
+		test("completes ./ paths after punctuation", async () => {
+			setupFolder(baseDir, {
+				files: {
+					"update.sh": "#!/bin/bash",
+				},
+			});
+
+			const provider = new CombinedAutocompleteProvider([], baseDir);
+			const line = "(./up";
+			const result = await getSuggestions(provider, [line], 0, line.length, true);
+
+			assert.notEqual(result, null, "Should return suggestions for ./ path after punctuation");
+			assert.strictEqual(result?.prefix, "./up");
+			const item = result?.items.find((entry) => entry.value === "./update.sh");
+			assert.ok(item, "Should find update.sh suggestion");
+
+			const applied = provider.applyCompletion([line], 0, line.length, item!, result!.prefix);
+			assert.strictEqual(applied.lines[0], "(./update.sh");
+		});
+
+		test("does not split path prefixes containing punctuation", async () => {
+			setupFolder(baseDir, {
+				files: {
+					"foo(bar).txt": "content",
+					"name[part].txt": "content",
+				},
+			});
+
+			const provider = new CombinedAutocompleteProvider([], baseDir);
+
+			const parenLine = "./foo(";
+			const parenResult = await getSuggestions(provider, [parenLine], 0, parenLine.length, true);
+			assert.notEqual(parenResult, null, "Should return suggestions for path containing parentheses");
+			assert.strictEqual(parenResult?.prefix, "./foo(");
+			assert.ok(parenResult?.items.some((item) => item.value === "./foo(bar).txt"));
+
+			const bracketLine = "./name[";
+			const bracketResult = await getSuggestions(provider, [bracketLine], 0, bracketLine.length, true);
+			assert.notEqual(bracketResult, null, "Should return suggestions for path containing brackets");
+			assert.strictEqual(bracketResult?.prefix, "./name[");
+			assert.ok(bracketResult?.items.some((item) => item.value === "./name[part].txt"));
+		});
 	});
 
 	describe("quoted path completion", () => {

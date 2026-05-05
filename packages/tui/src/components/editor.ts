@@ -1,4 +1,8 @@
-import type { AutocompleteProvider, AutocompleteSuggestions } from "../autocomplete.js";
+import {
+	type AutocompleteProvider,
+	type AutocompleteSuggestions,
+	isAutocompleteTokenBoundary,
+} from "../autocomplete.js";
 import { getKeybindings } from "../keybindings.js";
 import { decodePrintableKey, matchesKey } from "../keys.js";
 import { KillRing } from "../kill-ring.js";
@@ -1059,7 +1063,7 @@ export class Editor implements Component, Focusable {
 				const currentLine = this.state.lines[this.state.cursorLine] || "";
 				const textBeforeCursor = currentLine.slice(0, this.state.cursorCol);
 				const charBeforeSymbol = textBeforeCursor[textBeforeCursor.length - 2];
-				if (textBeforeCursor.length === 1 || charBeforeSymbol === " " || charBeforeSymbol === "\t") {
+				if (isAutocompleteTokenBoundary(charBeforeSymbol)) {
 					this.tryTriggerAutocomplete();
 				}
 			}
@@ -1072,7 +1076,7 @@ export class Editor implements Component, Focusable {
 					this.tryTriggerAutocomplete();
 				}
 				// Check if we're in a symbol-based completion context like @ or #
-				else if (textBeforeCursor.match(/(?:^|[\s])[@#][^\s]*$/)) {
+				else if (this.isInSymbolAutocompleteContext(textBeforeCursor)) {
 					this.tryTriggerAutocomplete();
 				}
 			}
@@ -1252,7 +1256,7 @@ export class Editor implements Component, Focusable {
 				this.tryTriggerAutocomplete();
 			}
 			// Symbol-based completion context like @ or #
-			else if (textBeforeCursor.match(/(?:^|[\s])[@#][^\s]*$/)) {
+			else if (this.isInSymbolAutocompleteContext(textBeforeCursor)) {
 				this.tryTriggerAutocomplete();
 			}
 		}
@@ -1616,7 +1620,7 @@ export class Editor implements Component, Focusable {
 				this.tryTriggerAutocomplete();
 			}
 			// Symbol-based completion context like @ or #
-			else if (textBeforeCursor.match(/(?:^|[\s])[@#][^\s]*$/)) {
+			else if (this.isInSymbolAutocompleteContext(textBeforeCursor)) {
 				this.tryTriggerAutocomplete();
 			}
 		}
@@ -2052,6 +2056,20 @@ export class Editor implements Component, Focusable {
 		return this.isSlashMenuAllowed() && textBeforeCursor.trimStart().startsWith("/");
 	}
 
+	private isInSymbolAutocompleteContext(textBeforeCursor: string): boolean {
+		const atIndex = textBeforeCursor.lastIndexOf("@");
+		const hashIndex = textBeforeCursor.lastIndexOf("#");
+		const tokenStart = Math.max(atIndex, hashIndex);
+		if (tokenStart === -1) return false;
+		if (tokenStart > 0 && !isAutocompleteTokenBoundary(textBeforeCursor[tokenStart - 1])) return false;
+
+		const token = textBeforeCursor.slice(tokenStart);
+		if (token.startsWith('@"')) {
+			return !token.slice(2).includes('"');
+		}
+		return !/\s/.test(token);
+	}
+
 	// Autocomplete methods
 	/**
 	 * Find the best autocomplete item index for the given prefix.
@@ -2176,8 +2194,7 @@ export class Editor implements Component, Focusable {
 
 		const currentLine = this.state.lines[this.state.cursorLine] || "";
 		const textBeforeCursor = currentLine.slice(0, this.state.cursorCol);
-		const isSymbolAutocompleteContext = /(?:^|[ \t])(?:@(?:"[^"]*|[^\s]*)|#[^\s]*)$/.test(textBeforeCursor);
-		return isSymbolAutocompleteContext ? ATTACHMENT_AUTOCOMPLETE_DEBOUNCE_MS : 0;
+		return this.isInSymbolAutocompleteContext(textBeforeCursor) ? ATTACHMENT_AUTOCOMPLETE_DEBOUNCE_MS : 0;
 	}
 
 	private async runAutocompleteRequest(

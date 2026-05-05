@@ -4,7 +4,12 @@ import { homedir } from "os";
 import { basename, dirname, join } from "path";
 import { fuzzyFilter } from "./fuzzy.js";
 
-const PATH_DELIMITERS = new Set([" ", "\t", '"', "'", "="]);
+const PATH_TOKEN_DELIMITERS = new Set([" ", "\t", '"', "'", "="]);
+const AUTOCOMPLETE_BOUNDARY_PUNCTUATION = new Set(["(", ")", "[", "]", "{", "}", "<", ">", ",", ";"]);
+
+export function isAutocompleteTokenBoundary(char: string | undefined): boolean {
+	return char === undefined || PATH_TOKEN_DELIMITERS.has(char) || AUTOCOMPLETE_BOUNDARY_PUNCTUATION.has(char);
+}
 
 function toDisplayPath(value: string): string {
 	return value.replace(/\\/g, "/");
@@ -44,11 +49,35 @@ function buildFdPathQuery(query: string): string {
 
 function findLastDelimiter(text: string): number {
 	for (let i = text.length - 1; i >= 0; i -= 1) {
-		if (PATH_DELIMITERS.has(text[i] ?? "")) {
+		if (PATH_TOKEN_DELIMITERS.has(text[i] ?? "")) {
 			return i;
 		}
 	}
 	return -1;
+}
+
+function isExplicitPathPrefixStart(prefix: string): boolean {
+	return prefix.startsWith(".") || prefix.startsWith("/") || prefix.startsWith("~/") || prefix === "~";
+}
+
+function findPathPrefixStartInToken(token: string): number {
+	let tokenStart = 0;
+	while (AUTOCOMPLETE_BOUNDARY_PUNCTUATION.has(token[tokenStart] ?? "")) {
+		tokenStart += 1;
+	}
+
+	for (let i = tokenStart; i < token.length; i += 1) {
+		if (!AUTOCOMPLETE_BOUNDARY_PUNCTUATION.has(token[i] ?? "")) {
+			continue;
+		}
+
+		const suffix = token.slice(i + 1);
+		if (isExplicitPathPrefixStart(suffix)) {
+			tokenStart = i + 1;
+		}
+	}
+
+	return tokenStart;
 }
 
 function findUnclosedQuoteStart(text: string): number | null {
@@ -68,7 +97,7 @@ function findUnclosedQuoteStart(text: string): number | null {
 }
 
 function isTokenStart(text: string, index: number): boolean {
-	return index === 0 || PATH_DELIMITERS.has(text[index - 1] ?? "");
+	return index === 0 || isAutocompleteTokenBoundary(text[index - 1]);
 }
 
 function extractQuotedPrefix(text: string): string | null {
@@ -465,9 +494,13 @@ export class CombinedAutocompleteProvider implements AutocompleteProvider {
 
 		const lastDelimiterIndex = findLastDelimiter(text);
 		const tokenStart = lastDelimiterIndex === -1 ? 0 : lastDelimiterIndex + 1;
+		const token = text.slice(tokenStart);
 
-		if (text[tokenStart] === "@") {
-			return text.slice(tokenStart);
+		for (let i = 0; i < token.length; i += 1) {
+			const absoluteIndex = tokenStart + i;
+			if (token[i] === "@" && isTokenStart(text, absoluteIndex)) {
+				return text.slice(absoluteIndex);
+			}
 		}
 
 		return null;
@@ -481,7 +514,10 @@ export class CombinedAutocompleteProvider implements AutocompleteProvider {
 		}
 
 		const lastDelimiterIndex = findLastDelimiter(text);
-		const pathPrefix = lastDelimiterIndex === -1 ? text : text.slice(lastDelimiterIndex + 1);
+		const tokenStart = lastDelimiterIndex === -1 ? 0 : lastDelimiterIndex + 1;
+		const token = text.slice(tokenStart);
+		const pathPrefixStart = tokenStart + findPathPrefixStartInToken(token);
+		const pathPrefix = text.slice(pathPrefixStart);
 
 		// For forced extraction (Tab key), always return something
 		if (forceExtract) {
