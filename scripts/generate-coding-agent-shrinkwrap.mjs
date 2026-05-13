@@ -1,15 +1,22 @@
 #!/usr/bin/env node
 
-import { readFileSync, writeFileSync } from "fs";
-import { dirname, join, posix, resolve } from "path";
-import { fileURLToPath } from "url";
+import { execFileSync } from "child_process";
+import { copyFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
+import { dirname, join, resolve } from "path";
+import { fileURLToPath, pathToFileURL } from "url";
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(scriptDir, "..");
-const codingAgentPackagePath = "packages/coding-agent";
-const codingAgentDir = join(repoRoot, codingAgentPackagePath);
-const lockfilePath = join(repoRoot, "package-lock.json");
+const codingAgentDir = join(repoRoot, "packages/coding-agent");
+const rootLockfilePath = join(repoRoot, "package-lock.json");
 const shrinkwrapPath = join(codingAgentDir, "npm-shrinkwrap.json");
+
+const INTERNAL_WORKSPACES = new Map([
+	["@earendil-works/pi-agent-core", "packages/agent"],
+	["@earendil-works/pi-ai", "packages/ai"],
+	["@earendil-works/pi-tui", "packages/tui"],
+]);
 
 const args = new Set(process.argv.slice(2));
 const checkOnly = args.has("--check");
@@ -25,134 +32,100 @@ function readJson(path) {
 	return JSON.parse(readFileSync(path, "utf8"));
 }
 
-function productionDependencies(pkg) {
-	return {
-		...(pkg.dependencies || {}),
-		...(pkg.optionalDependencies || {}),
-	};
-}
-
-function sortedObject(obj) {
-	return Object.fromEntries(Object.entries(obj).sort(([a], [b]) => a.localeCompare(b)));
-}
-
-function copyLockEntry(entry) {
-	const copied = { ...entry };
-	delete copied.dev;
-	delete copied.devOptional;
-	delete copied.extraneous;
-	delete copied.link;
-	return sortedObject(copied);
-}
-
-function copyPackageJsonEntry(pkg, { includeName }) {
-	const entry = includeName ? { name: pkg.name, version: pkg.version } : { version: pkg.version };
-
-	for (const field of [
-		"license",
-		"bin",
-		"engines",
-		"os",
-		"cpu",
-		"libc",
-		"dependencies",
-		"optionalDependencies",
-		"peerDependencies",
-		"peerDependenciesMeta",
-	]) {
-		if (pkg[field] !== undefined) {
-			entry[field] = pkg[field];
-		}
-	}
-
-	return sortedObject(entry);
-}
-
 function packageNameFromLockPath(lockPath) {
 	const marker = "node_modules/";
 	const index = lockPath.lastIndexOf(marker);
 	if (index === -1) {
-		throw new Error(`Cannot derive package name from lock path: ${lockPath}`);
+		return null;
 	}
 
-	const rest = lockPath.slice(index + marker.length).split("/");
-	if (rest[0]?.startsWith("@")) {
-		return `${rest[0]}/${rest[1]}`;
+	const parts = lockPath.slice(index + marker.length).split("/");
+	if (parts[0]?.startsWith("@")) {
+		return `${parts[0]}/${parts[1]}`;
 	}
-	return rest[0];
+	return parts[0];
 }
 
-function workspaceOutputPath(packageName) {
-	return `node_modules/${packageName}`;
+function registryTarballUrl(packageName, version) {
+	const tarballName = packageName.startsWith("@") ? packageName.split("/")[1] : packageName;
+	return `https://registry.npmjs.org/${packageName}/-/${tarballName}-${version}.tgz`;
 }
 
-function findWorkspacePackages(lockPackages) {
-	const workspaces = new Map();
+function createTempPackageJson(codingAgentPackage) {
+	const tempPackage = JSON.parse(JSON.stringify(codingAgentPackage));
+	const internalNames = new Set();
 
-	for (const [lockPath, entry] of Object.entries(lockPackages)) {
-		if (!lockPath.startsWith("packages/") || lockPath.includes("/node_modules/") || !entry.name || !entry.version) {
-			continue;
+	delete tempPackage.devDependencies;
+
+	for (const [name, relativePath] of INTERNAL_WORKSPACES) {
+		const fileSpec = pathToFileURL(join(repoRoot, relativePath)).href;
+		if (tempPackage.dependencies?.[name]) {
+			tempPackage.dependencies[name] = fileSpec;
+			internalNames.add(name);
 		}
-
-		workspaces.set(entry.name, {
-			lockPath,
-			pkg: readJson(join(repoRoot, lockPath, "package.json")),
-		});
+		if (tempPackage.optionalDependencies?.[name]) {
+			tempPackage.optionalDependencies[name] = fileSpec;
+			internalNames.add(name);
+		}
 	}
 
-	return workspaces;
+	return { internalNames, tempPackage };
 }
 
-function createResolver(lockPackages) {
-	return function resolveExternalDependency(packageName, fromLockPath) {
-		const candidateDirs = [];
+function runNpmInstall(tempDir) {
+	execFileSync(
+		"npm",
+		["install", "--package-lock-only", "--omit=dev", "--ignore-scripts", "--install-links=true", "--workspaces=false", "--audit=false", "--fund=false"],
+		{ cwd: tempDir, stdio: "inherit" },
+	);
+}
 
-		let current = fromLockPath;
-		while (current) {
-			candidateDirs.push(current);
-			const parent = posix.dirname(current);
-			if (parent === "." || parent === current) {
-				break;
+function sanitizeLockfile(lockfile, codingAgentPackage, internalNames) {
+	const packages = {};
+
+	for (const [lockPath, entry] of Object.entries(lockfile.packages)) {
+		const copied = { ...entry };
+		delete copied.dev;
+		delete copied.devOptional;
+		delete copied.extraneous;
+		delete copied.link;
+
+		if (lockPath === "") {
+			copied.name = codingAgentPackage.name;
+			copied.version = codingAgentPackage.version;
+			copied.dependencies = codingAgentPackage.dependencies;
+			if (codingAgentPackage.optionalDependencies) {
+				copied.optionalDependencies = codingAgentPackage.optionalDependencies;
 			}
-			current = parent;
-		}
-		candidateDirs.push("");
-
-		const tried = new Set();
-		for (const dir of candidateDirs) {
-			const candidate = dir ? `${dir}/node_modules/${packageName}` : `node_modules/${packageName}`;
-			if (tried.has(candidate)) {
-				continue;
+		} else {
+			const packageName = packageNameFromLockPath(lockPath);
+			if (packageName && internalNames.has(packageName)) {
+				copied.resolved = registryTarballUrl(packageName, copied.version);
+				delete copied.integrity;
 			}
-			tried.add(candidate);
-
-			const entry = lockPackages[candidate];
-			if (entry && !entry.link) {
-				return candidate;
-			}
-		}
-
-		const suffix = `node_modules/${packageName}`;
-		const matches = Object.entries(lockPackages)
-			.filter(([lockPath, entry]) => !entry.link && (lockPath === suffix || lockPath.endsWith(`/${suffix}`)))
-			.map(([lockPath]) => lockPath);
-
-		if (matches.length === 1) {
-			return matches[0];
 		}
 
-		throw new Error(
-			`Cannot resolve ${packageName} from ${fromLockPath || "root"}. ` +
-				(matches.length > 1 ? `Matches: ${matches.join(", ")}` : "No matching lockfile entry found."),
-		);
+		packages[lockPath] = copied;
+	}
+
+	return {
+		name: codingAgentPackage.name,
+		version: codingAgentPackage.version,
+		lockfileVersion: 3,
+		requires: true,
+		packages,
 	};
 }
 
-function validateShrinkwrapPackages(shrinkwrapPackages) {
+function validateShrinkwrap(shrinkwrap, internalNames) {
 	const errors = [];
-	const includedPaths = new Set(Object.keys(shrinkwrapPackages));
+	const packageNames = new Set();
 
-	for (const [lockPath, entry] of Object.entries(shrinkwrapPackages)) {
+	for (const [lockPath, entry] of Object.entries(shrinkwrap.packages)) {
+		const packageName = packageNameFromLockPath(lockPath);
+		if (packageName) {
+			packageNames.add(packageName);
+		}
 		if (entry.link) {
 			errors.push(`${lockPath} is a link entry`);
 		}
@@ -161,19 +134,14 @@ function validateShrinkwrapPackages(shrinkwrapPackages) {
 		}
 	}
 
-	for (const [lockPath, entry] of Object.entries(shrinkwrapPackages)) {
-		for (const dependencyName of Object.keys(entry.optionalDependencies || {})) {
-			const dependencyIncluded = [...includedPaths].some(
-				(candidate) => candidate === `node_modules/${dependencyName}` || candidate.endsWith(`/node_modules/${dependencyName}`),
-			);
-			if (!dependencyIncluded) {
-				errors.push(`${lockPath} optional dependency ${dependencyName} is missing`);
-			}
+	for (const name of internalNames) {
+		if (!packageNames.has(name)) {
+			errors.push(`internal dependency ${name} is missing`);
 		}
 	}
 
-	const platformEntries = Object.entries(shrinkwrapPackages).filter(([, entry]) => entry.os || entry.cpu || entry.libc);
-	if (platformEntries.length === 0) {
+	const platformPackageCount = Object.values(shrinkwrap.packages).filter((entry) => entry.os || entry.cpu || entry.libc).length;
+	if (platformPackageCount === 0) {
 		errors.push("no platform-specific optional dependency entries found");
 	}
 
@@ -183,66 +151,26 @@ function validateShrinkwrapPackages(shrinkwrapPackages) {
 }
 
 function generateShrinkwrap() {
-	const rootLock = readJson(lockfilePath);
-	if (rootLock.lockfileVersion !== 3 || !rootLock.packages) {
-		throw new Error("package-lock.json must be lockfileVersion 3 and contain a packages map");
-	}
-
-	const lockPackages = rootLock.packages;
 	const codingAgentPackage = readJson(join(codingAgentDir, "package.json"));
-	const workspaces = findWorkspacePackages(lockPackages);
-	const resolveExternalDependency = createResolver(lockPackages);
-	const shrinkwrapPackages = {
-		"": copyPackageJsonEntry(codingAgentPackage, { includeName: true }),
-	};
-	const addedPaths = new Set([""]);
-	const queue = Object.keys(productionDependencies(codingAgentPackage)).map((name) => ({ name, from: "" }));
+	const { internalNames, tempPackage } = createTempPackageJson(codingAgentPackage);
+	const tempDir = mkdtempSync(join(tmpdir(), "pi-coding-agent-shrinkwrap-"));
 
-	while (queue.length > 0) {
-		const item = queue.shift();
-		if (!item) {
-			break;
+	try {
+		writeFileSync(join(tempDir, "package.json"), `${JSON.stringify(tempPackage, null, "\t")}\n`);
+		copyFileSync(rootLockfilePath, join(tempDir, "package-lock.json"));
+		runNpmInstall(tempDir);
+
+		const lockfile = readJson(join(tempDir, "package-lock.json"));
+		if (lockfile.lockfileVersion !== 3 || !lockfile.packages) {
+			throw new Error("npm generated an unsupported package-lock.json");
 		}
 
-		const workspace = workspaces.get(item.name);
-		if (workspace) {
-			const outputPath = workspaceOutputPath(item.name);
-			if (addedPaths.has(outputPath)) {
-				continue;
-			}
-
-			shrinkwrapPackages[outputPath] = copyPackageJsonEntry(workspace.pkg, { includeName: false });
-			addedPaths.add(outputPath);
-
-			for (const dependencyName of Object.keys(productionDependencies(workspace.pkg))) {
-				queue.push({ name: dependencyName, from: outputPath });
-			}
-			continue;
-		}
-
-		const lockPath = resolveExternalDependency(item.name, item.from);
-		if (addedPaths.has(lockPath)) {
-			continue;
-		}
-
-		const entry = lockPackages[lockPath];
-		shrinkwrapPackages[lockPath] = copyLockEntry(entry);
-		addedPaths.add(lockPath);
-
-		for (const dependencyName of Object.keys(productionDependencies(entry))) {
-			queue.push({ name: dependencyName, from: lockPath });
-		}
+		const shrinkwrap = sanitizeLockfile(lockfile, codingAgentPackage, internalNames);
+		validateShrinkwrap(shrinkwrap, internalNames);
+		return shrinkwrap;
+	} finally {
+		rmSync(tempDir, { recursive: true, force: true });
 	}
-
-	validateShrinkwrapPackages(shrinkwrapPackages);
-
-	return {
-		name: codingAgentPackage.name,
-		version: codingAgentPackage.version,
-		lockfileVersion: 3,
-		requires: true,
-		packages: sortedObject(shrinkwrapPackages),
-	};
 }
 
 try {
