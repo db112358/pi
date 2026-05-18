@@ -116,18 +116,22 @@ import { ScopedModelsSelectorComponent } from "./components/scoped-models-select
 import { SessionSelectorComponent } from "./components/session-selector.js";
 import { SettingsSelectorComponent } from "./components/settings-selector.js";
 import { SkillInvocationMessageComponent } from "./components/skill-invocation-message.js";
+import { ThemeSelectorComponent } from "./components/theme-selector.js";
 import { ToolExecutionComponent } from "./components/tool-execution.js";
 import { TreeSelectorComponent } from "./components/tree-selector.js";
 import { UserMessageComponent } from "./components/user-message.js";
 import { UserMessageSelectorComponent } from "./components/user-message-selector.js";
 import {
+	detectTerminalBackground,
 	getAvailableThemes,
 	getAvailableThemesWithPaths,
 	getEditorTheme,
 	getMarkdownTheme,
 	getThemeByName,
+	getThemeForRgbColor,
 	initTheme,
 	onThemeChange,
+	parseOsc11BackgroundColor,
 	setRegisteredThemes,
 	setTheme,
 	setThemeInstance,
@@ -147,6 +151,8 @@ function isExpandable(obj: unknown): obj is Expandable {
 }
 
 class ExpandableText extends Text implements Expandable {
+	private expanded: boolean;
+
 	constructor(
 		private readonly getCollapsedText: () => string,
 		private readonly getExpandedText: () => string,
@@ -154,11 +160,23 @@ class ExpandableText extends Text implements Expandable {
 		paddingX = 0,
 		paddingY = 0,
 	) {
-		super(expanded ? getExpandedText() : getCollapsedText(), paddingX, paddingY);
+		super("", paddingX, paddingY);
+		this.expanded = expanded;
+		this.updateText();
+	}
+
+	private updateText(): void {
+		this.setText(this.expanded ? this.getExpandedText() : this.getCollapsedText());
 	}
 
 	setExpanded(expanded: boolean): void {
-		this.setText(expanded ? this.getExpandedText() : this.getCollapsedText());
+		this.expanded = expanded;
+		this.updateText();
+	}
+
+	override invalidate(): void {
+		this.updateText();
+		super.invalidate();
 	}
 }
 
@@ -664,22 +682,25 @@ export class InteractiveMode {
 		this.setupKeyHandlers();
 		this.setupEditorSubmitHandler();
 
-		// Start the UI before initializing extensions so session_start handlers can use interactive dialogs
+		// Start the UI before initializing extensions so first-run setup can use interactive dialogs.
 		this.ui.start();
 		this.isInitialized = true;
+
+		// Set up theme file watcher before first-run theme selection so previews invalidate consistently.
+		onThemeChange(() => {
+			this.ui.invalidate();
+			this.updateEditorBorderColor();
+			this.ui.requestRender();
+		});
+
+		// Complete first-run theme selection before extensions can replace the editor and steal focus.
+		await this.showInitialThemeSelectorIfNeeded();
 
 		// Initialize extensions first so resources are shown before messages
 		await this.rebindCurrentSession();
 
 		// Render initial messages AFTER showing loaded resources
 		this.renderInitialMessages();
-
-		// Set up theme file watcher
-		onThemeChange(() => {
-			this.ui.invalidate();
-			this.updateEditorBorderColor();
-			this.ui.requestRender();
-		});
 
 		// Set up git branch watcher (uses provider instead of footer)
 		this.footerDataProvider.onBranchChange(() => {
@@ -3816,8 +3837,133 @@ export class InteractiveMode {
 		this.ui.requestRender();
 	}
 
+	private previewTheme(themeName: string): { success: boolean; error?: string } {
+		const result = setTheme(themeName, true);
+		this.ui.invalidate();
+		this.updateEditorBorderColor();
+		this.ui.requestRender();
+		return result;
+	}
+
+	private selectTheme(themeName: string): boolean {
+		const result = this.previewTheme(themeName);
+		if (!result.success) {
+			this.showError(`Failed to load theme "${themeName}": ${result.error}\nFell back to dark theme.`);
+			return false;
+		}
+		if (this.settingsManager.getTheme() !== themeName) {
+			this.settingsManager.setTheme(themeName);
+		}
+		return true;
+	}
+
+	private queryTerminalBackground(timeoutMs = 200): Promise<ReturnType<typeof detectTerminalBackground> | undefined> {
+		return new Promise((resolve) => {
+			let resolved = false;
+			let unsubscribed = false;
+			const unsubscribe = this.ui.addInputListener((data) => {
+				const rgb = parseOsc11BackgroundColor(data);
+				if (!rgb) {
+					return undefined;
+				}
+				if (!unsubscribed) {
+					unsubscribed = true;
+					unsubscribe();
+				}
+				const themeName = getThemeForRgbColor(rgb);
+				const detail = `OSC 11 background rgb(${rgb.r}, ${rgb.g}, ${rgb.b})`;
+				if (!resolved) {
+					resolved = true;
+					clearTimeout(resolveTimer);
+					clearTimeout(cleanupTimer);
+					resolve({ theme: themeName, source: "terminal background", detail, confidence: "high" });
+				}
+				return { consume: true };
+			});
+
+			const resolveTimer = setTimeout(() => {
+				if (resolved) {
+					return;
+				}
+				resolved = true;
+				resolve(undefined);
+			}, timeoutMs);
+			const cleanupTimer = setTimeout(() => {
+				if (unsubscribed) {
+					return;
+				}
+				unsubscribed = true;
+				unsubscribe();
+			}, 2000);
+
+			this.ui.terminal.write("\x1b]11;?\x07");
+		});
+	}
+
+	private async showInitialThemeSelectorIfNeeded(): Promise<void> {
+		if (this.settingsManager.getTheme()) {
+			return;
+		}
+
+		const detection = (await this.queryTerminalBackground()) ?? detectTerminalBackground();
+		const detectedTheme = detection.theme;
+		const isFallbackDetection = detection.source === "fallback";
+		const detectedThemeLabel = isFallbackDetection ? "default" : "detected";
+		this.previewTheme(detectedTheme);
+
+		await new Promise<void>((resolve) => {
+			let handle: OverlayHandle | undefined;
+			let closed = false;
+			const done = () => {
+				if (closed) {
+					return;
+				}
+				closed = true;
+				handle?.hide();
+				this.ui.setFocus(this.editor);
+				this.ui.requestRender();
+				resolve();
+			};
+			const selector = new ThemeSelectorComponent(
+				detectedTheme,
+				(themeName) => {
+					if (!this.selectTheme(themeName)) {
+						return;
+					}
+					done();
+					this.showStatus(`Theme: ${themeName}`);
+				},
+				() => {
+					this.previewTheme(detectedTheme);
+					done();
+					this.showStatus(`Using detected ${detectedTheme} theme for this session`);
+				},
+				(themeName) => {
+					this.previewTheme(themeName);
+				},
+				{
+					title: "Choose a theme",
+					description:
+						"No theme is configured yet. Pick the option that is readable in this terminal; pi will save it to settings.",
+					detectedTheme,
+					detectedThemeLabel,
+					availableThemes: getAvailableThemes(),
+					hint: isFallbackDetection
+						? "Enter to save · Esc to use default for this session"
+						: "Enter to save · Esc to use detected for this session",
+				},
+			);
+			handle = this.ui.showOverlay(selector, {
+				width: "100%",
+				maxHeight: "100%",
+				margin: 0,
+			});
+		});
+	}
+
 	private showSettingsSelector(): void {
 		this.showSelector((done) => {
+			const currentTheme = this.settingsManager.getTheme() || theme.name || detectTerminalBackground().theme;
 			const selector = new SettingsSelectorComponent(
 				{
 					autoCompact: this.session.autoCompactionEnabled,
@@ -3831,7 +3977,7 @@ export class InteractiveMode {
 					transport: this.settingsManager.getTransport(),
 					thinkingLevel: this.session.thinkingLevel,
 					availableThinkingLevels: this.session.getAvailableThinkingLevels(),
-					currentTheme: this.settingsManager.getTheme() || "dark",
+					currentTheme,
 					availableThemes: getAvailableThemes(),
 					hideThinkingBlock: this.hideThinkingBlock,
 					collapseChangelog: this.settingsManager.getCollapseChangelog(),
@@ -3892,20 +4038,9 @@ export class InteractiveMode {
 						this.footer.invalidate();
 						this.updateEditorBorderColor();
 					},
-					onThemeChange: (themeName) => {
-						const result = setTheme(themeName, true);
-						this.settingsManager.setTheme(themeName);
-						this.ui.invalidate();
-						if (!result.success) {
-							this.showError(`Failed to load theme "${themeName}": ${result.error}\nFell back to dark theme.`);
-						}
-					},
+					onThemeChange: (themeName) => this.selectTheme(themeName),
 					onThemePreview: (themeName) => {
-						const result = setTheme(themeName, true);
-						if (result.success) {
-							this.ui.invalidate();
-							this.ui.requestRender();
-						}
+						this.previewTheme(themeName);
 					},
 					onHideThinkingBlockChange: (hidden) => {
 						this.hideThinkingBlock = hidden;

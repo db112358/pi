@@ -15,6 +15,7 @@ import type { WarningSettings } from "../../../core/settings-manager.js";
 import { getSelectListTheme, getSettingsListTheme, theme } from "../theme/theme.js";
 import { DynamicBorder } from "./dynamic-border.js";
 import { keyDisplayText } from "./keybinding-hints.js";
+import { ThemeSelectorComponent } from "./theme-selector.js";
 
 const SETTINGS_SUBMENU_SELECT_LIST_LAYOUT: SelectListLayoutOptions = {
 	minPrimaryColumnWidth: 12,
@@ -323,13 +324,7 @@ export class SettingsSelectorComponent extends Container {
 				description: "Color theme for the interface",
 				currentValue: config.currentTheme,
 				submenu: (currentValue, done) =>
-					new SelectSubmenu(
-						"Theme",
-						"Select color theme",
-						config.availableThemes.map((t) => ({
-							value: t,
-							label: t,
-						})),
+					new ThemeSelectorComponent(
 						currentValue,
 						(value) => {
 							callbacks.onThemeChange(value);
@@ -343,6 +338,12 @@ export class SettingsSelectorComponent extends Container {
 						(value) => {
 							// Preview theme on selection change
 							callbacks.onThemePreview?.(value);
+						},
+						{
+							title: "Theme",
+							description: "Select a readable color theme for this terminal.",
+							availableThemes: config.availableThemes,
+							border: false,
 						},
 					),
 			},

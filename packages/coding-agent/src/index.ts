@@ -326,6 +326,7 @@ export {
 	ShowImagesSelectorComponent,
 	SkillInvocationMessageComponent,
 	ThemeSelectorComponent,
+	type ThemeSelectorOptions,
 	ThinkingSelectorComponent,
 	ToolExecutionComponent,
 	type ToolExecutionOptions,
