@@ -50,6 +50,22 @@ describe("convertToPng", () => {
 });
 
 describe("resizeImage", () => {
+	it("should keep caller input bytes intact", async () => {
+		const input = new Uint8Array(imageBytes(TINY_PNG));
+		const originalByteLength = input.byteLength;
+		const originalFirstByte = input[0];
+
+		const result = await resizeImage(input, "image/png", {
+			maxWidth: 100,
+			maxHeight: 100,
+			maxBytes: 1024 * 1024,
+		});
+
+		expect(result).not.toBeNull();
+		expect(input.byteLength).toBe(originalByteLength);
+		expect(input[0]).toBe(originalFirstByte);
+	});
+
 	it("should return original image if within limits", async () => {
 		const result = await resizeImage(imageBytes(TINY_PNG), "image/png", {
 			maxWidth: 100,
