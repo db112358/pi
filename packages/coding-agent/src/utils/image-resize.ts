@@ -24,7 +24,7 @@ function createResizeWorker(): Worker {
 		isTypeScriptRuntime ? "./image-resize-worker.ts" : "./image-resize-worker.js",
 		import.meta.url,
 	);
-	return new Worker(workerUrl, isTypeScriptRuntime ? { execArgv: ["--import", "tsx"] } : undefined);
+	return new Worker(workerUrl);
 }
 
 async function resizeImageInWorker(
