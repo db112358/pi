@@ -105,14 +105,18 @@ fi
 
 for platform in "${PLATFORMS[@]}"; do
     echo "Building for $platform..."
+    # Bun compiled executables only embed worker scripts when they are passed as
+    # explicit build entrypoints. The runtime can still use new URL(...), but the
+    # worker must be present in the compiled executable.
+    #
     # Externalize koffi to avoid embedding all 18 platform .node files (~74MB)
     # into every binary. Koffi is only used on Windows for VT input and the
     # call site has a try/catch fallback. For Windows builds, we copy the
     # appropriate .node file alongside the binary below.
     if [[ "$platform" == windows-* ]]; then
-        bun build --compile --external koffi --target=bun-$platform ./dist/bun/cli.js --outfile binaries/$platform/pi.exe
+        bun build --compile --external koffi --target=bun-$platform ./dist/bun/cli.js ./dist/utils/image-resize-worker.js --outfile binaries/$platform/pi.exe
     else
-        bun build --compile --external koffi --target=bun-$platform ./dist/bun/cli.js --outfile binaries/$platform/pi
+        bun build --compile --external koffi --target=bun-$platform ./dist/bun/cli.js ./dist/utils/image-resize-worker.js --outfile binaries/$platform/pi
     fi
 done
 
