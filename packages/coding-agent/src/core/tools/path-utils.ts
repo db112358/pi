@@ -1,13 +1,8 @@
 import { accessSync, constants } from "node:fs";
 import { access } from "node:fs/promises";
-import * as os from "node:os";
-import { isAbsolute, resolve as resolvePath } from "node:path";
+import { normalizePath, resolvePath } from "../../utils/paths.ts";
 
-const UNICODE_SPACES = /[\u00A0\u2000-\u200A\u202F\u205F\u3000]/g;
 const NARROW_NO_BREAK_SPACE = "\u202F";
-function normalizeUnicodeSpaces(str: string): string {
-	return str.replace(UNICODE_SPACES, " ");
-}
 
 function tryMacOSScreenshotPath(filePath: string): string {
 	return filePath.replace(/ (AM|PM)\./gi, `${NARROW_NO_BREAK_SPACE}$1.`);
@@ -42,19 +37,8 @@ async function fileExistsAsync(filePath: string): Promise<boolean> {
 	}
 }
 
-function normalizeAtPrefix(filePath: string): string {
-	return filePath.startsWith("@") ? filePath.slice(1) : filePath;
-}
-
 export function expandPath(filePath: string): string {
-	const normalized = normalizeUnicodeSpaces(normalizeAtPrefix(filePath));
-	if (normalized === "~") {
-		return os.homedir();
-	}
-	if (normalized.startsWith("~/")) {
-		return os.homedir() + normalized.slice(1);
-	}
-	return normalized;
+	return normalizePath(filePath, { normalizeUnicodeSpaces: true, stripAtPrefix: true });
 }
 
 /**
@@ -62,11 +46,7 @@ export function expandPath(filePath: string): string {
  * Handles ~ expansion and absolute paths.
  */
 export function resolveToCwd(filePath: string, cwd: string): string {
-	const expanded = expandPath(filePath);
-	if (isAbsolute(expanded)) {
-		return expanded;
-	}
-	return resolvePath(cwd, expanded);
+	return resolvePath(filePath, cwd, { normalizeUnicodeSpaces: true, stripAtPrefix: true });
 }
 
 export function resolveReadPath(filePath: string, cwd: string): string {

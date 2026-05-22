@@ -13,6 +13,7 @@ import {
 	type EditDiffError,
 	type EditDiffResult,
 	generateDiffString,
+	generateUnifiedPatch,
 	normalizeToLF,
 	restoreLineEndings,
 	stripBom,
@@ -57,8 +58,10 @@ type LegacyEditToolInput = EditToolInput & {
 };
 
 export interface EditToolDetails {
-	/** Unified diff of the changes made */
+	/** Display-oriented diff of the changes made */
 	diff: string;
+	/** Standard unified patch of the changes made */
+	patch: string;
 	/** Line number of the first change in the new file (for editor navigation) */
 	firstChangedLine?: number;
 }
@@ -353,6 +356,7 @@ export function createEditToolDefinition(
 					throwIfAborted();
 
 					const diffResult = generateDiffString(baseContent, newContent);
+					const patch = generateUnifiedPatch(path, baseContent, newContent);
 					return {
 						content: [
 							{
@@ -360,7 +364,7 @@ export function createEditToolDefinition(
 								text: `Successfully replaced ${edits.length} block(s) in ${path}.`,
 							},
 						],
-						details: { diff: diffResult.diff, firstChangedLine: diffResult.firstChangedLine },
+						details: { diff: diffResult.diff, patch, firstChangedLine: diffResult.firstChangedLine },
 					};
 				} finally {
 					signal?.removeEventListener("abort", onAbort);
