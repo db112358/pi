@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- Added collapsed tool grouping for consecutive `read`/`find` tool calls.
+
 ### Fixed
 
 - Fixed user message transcript rendering to preserve user-authored ordered-list markers ([#5013](https://github.com/earendil-works/pi/issues/5013)).
