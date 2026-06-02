@@ -2,9 +2,10 @@ import type { Transport } from "@earendil-works/pi-ai";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
 import lockfile from "proper-lockfile";
-import { CONFIG_DIR_NAME, getAgentDir } from "../config.ts";
+import { CONFIG_DIR_NAME, getAgentDir, PROJECT_USER_CONFIG_DIR_NAME } from "../config.ts";
 import { normalizePath, resolvePath } from "../utils/paths.ts";
 import { DEFAULT_HTTP_IDLE_TIMEOUT_MS, parseHttpIdleTimeoutMs } from "./http-dispatcher.ts";
+import { ensureIgnoredProjectUserConfigDir } from "./project-user-config.ts";
 
 export interface CompactionSettings {
 	enabled?: boolean; // default: true
@@ -157,10 +158,22 @@ function parseTimeoutSetting(value: unknown, settingName: string): number | unde
 	return undefined;
 }
 
-export type SettingsScope = "global" | "project";
+export type SettingsScope = "global" | "project" | "projectUser";
+export type ProjectSettingsScope = "project" | "projectUser";
+
+export interface SettingsManagerCreateOptions {
+	projectConfigTrusted?: boolean;
+}
+
+export interface ProjectSettingsLayer {
+	scope: ProjectSettingsScope;
+	settings: Settings;
+}
 
 export interface SettingsStorage {
 	withLock(scope: SettingsScope, fn: (current: string | undefined) => string | undefined): void;
+	setProjectConfigTrusted?(trusted: boolean): void;
+	isProjectConfigTrusted?(): boolean;
 }
 
 export interface SettingsError {
@@ -171,12 +184,24 @@ export interface SettingsError {
 export class FileSettingsStorage implements SettingsStorage {
 	private globalSettingsPath: string;
 	private projectSettingsPath: string;
+	private projectUserSettingsPath: string;
+	private projectConfigTrusted: boolean;
 
-	constructor(cwd: string, agentDir: string) {
+	constructor(cwd: string, agentDir: string, options: SettingsManagerCreateOptions = {}) {
 		const resolvedCwd = resolvePath(cwd);
 		const resolvedAgentDir = resolvePath(agentDir);
 		this.globalSettingsPath = join(resolvedAgentDir, "settings.json");
 		this.projectSettingsPath = join(resolvedCwd, CONFIG_DIR_NAME, "settings.json");
+		this.projectUserSettingsPath = join(resolvedCwd, PROJECT_USER_CONFIG_DIR_NAME, "settings.json");
+		this.projectConfigTrusted = options.projectConfigTrusted ?? true;
+	}
+
+	setProjectConfigTrusted(trusted: boolean): void {
+		this.projectConfigTrusted = trusted;
+	}
+
+	isProjectConfigTrusted(): boolean {
+		return this.projectConfigTrusted;
 	}
 
 	private acquireLockSyncWithRetry(path: string): () => void {
@@ -206,8 +231,24 @@ export class FileSettingsStorage implements SettingsStorage {
 		throw (lastError as Error) ?? new Error("Failed to acquire settings lock");
 	}
 
+	private getSettingsPath(scope: SettingsScope): string {
+		switch (scope) {
+			case "global":
+				return this.globalSettingsPath;
+			case "project":
+				return this.projectSettingsPath;
+			case "projectUser":
+				return this.projectUserSettingsPath;
+		}
+	}
+
 	withLock(scope: SettingsScope, fn: (current: string | undefined) => string | undefined): void {
-		const path = scope === "global" ? this.globalSettingsPath : this.projectSettingsPath;
+		if ((scope === "project" || scope === "projectUser") && !this.projectConfigTrusted) {
+			fn(undefined);
+			return;
+		}
+
+		const path = this.getSettingsPath(scope);
 		const dir = dirname(path);
 
 		let release: (() => void) | undefined;
@@ -221,7 +262,9 @@ export class FileSettingsStorage implements SettingsStorage {
 			const next = fn(current);
 			if (next !== undefined) {
 				// Only create directory when we actually need to write
-				if (!existsSync(dir)) {
+				if (scope === "projectUser") {
+					ensureIgnoredProjectUserConfigDir(dir);
+				} else if (!existsSync(dir)) {
 					mkdirSync(dir, { recursive: true });
 				}
 				if (!release) {
@@ -240,15 +283,32 @@ export class FileSettingsStorage implements SettingsStorage {
 export class InMemorySettingsStorage implements SettingsStorage {
 	private global: string | undefined;
 	private project: string | undefined;
+	private projectUser: string | undefined;
+	private projectConfigTrusted = true;
+
+	setProjectConfigTrusted(trusted: boolean): void {
+		this.projectConfigTrusted = trusted;
+	}
+
+	isProjectConfigTrusted(): boolean {
+		return this.projectConfigTrusted;
+	}
 
 	withLock(scope: SettingsScope, fn: (current: string | undefined) => string | undefined): void {
-		const current = scope === "global" ? this.global : this.project;
+		if ((scope === "project" || scope === "projectUser") && !this.projectConfigTrusted) {
+			fn(undefined);
+			return;
+		}
+
+		const current = scope === "global" ? this.global : scope === "project" ? this.project : this.projectUser;
 		const next = fn(current);
 		if (next !== undefined) {
 			if (scope === "global") {
 				this.global = next;
-			} else {
+			} else if (scope === "project") {
 				this.project = next;
+			} else {
+				this.projectUser = next;
 			}
 		}
 	}
@@ -258,13 +318,18 @@ export class SettingsManager {
 	private storage: SettingsStorage;
 	private globalSettings: Settings;
 	private projectSettings: Settings;
+	private projectUserSettings: Settings;
 	private settings: Settings;
+	private projectConfigTrusted: boolean;
 	private modifiedFields = new Set<keyof Settings>(); // Track global fields modified during session
 	private modifiedNestedFields = new Map<keyof Settings, Set<string>>(); // Track global nested field modifications
 	private modifiedProjectFields = new Set<keyof Settings>(); // Track project fields modified during session
 	private modifiedProjectNestedFields = new Map<keyof Settings, Set<string>>(); // Track project nested field modifications
+	private modifiedProjectUserFields = new Set<keyof Settings>(); // Track .pi.user fields modified during session
+	private modifiedProjectUserNestedFields = new Map<keyof Settings, Set<string>>(); // Track .pi.user nested field modifications
 	private globalSettingsLoadError: Error | null = null; // Track if global settings file had parse errors
 	private projectSettingsLoadError: Error | null = null; // Track if project settings file had parse errors
+	private projectUserSettingsLoadError: Error | null = null; // Track if .pi.user settings file had parse errors
 	private writeQueue: Promise<void> = Promise.resolve();
 	private errors: SettingsError[];
 
@@ -272,29 +337,53 @@ export class SettingsManager {
 		storage: SettingsStorage,
 		initialGlobal: Settings,
 		initialProject: Settings,
+		initialProjectUser: Settings,
 		globalLoadError: Error | null = null,
 		projectLoadError: Error | null = null,
+		projectUserLoadError: Error | null = null,
 		initialErrors: SettingsError[] = [],
+		projectConfigTrusted = true,
 	) {
 		this.storage = storage;
 		this.globalSettings = initialGlobal;
 		this.projectSettings = initialProject;
+		this.projectUserSettings = initialProjectUser;
+		this.projectConfigTrusted = projectConfigTrusted;
 		this.globalSettingsLoadError = globalLoadError;
 		this.projectSettingsLoadError = projectLoadError;
+		this.projectUserSettingsLoadError = projectUserLoadError;
 		this.errors = [...initialErrors];
-		this.settings = deepMergeSettings(this.globalSettings, this.projectSettings);
+		this.settings = this.mergeAllSettings();
+	}
+
+	private mergeProjectSettings(): Settings {
+		return deepMergeSettings(this.projectSettings, this.projectUserSettings);
+	}
+
+	private mergeAllSettings(): Settings {
+		return deepMergeSettings(this.globalSettings, this.mergeProjectSettings());
+	}
+
+	private rebuildSettings(): void {
+		this.settings = this.mergeAllSettings();
 	}
 
 	/** Create a SettingsManager that loads from files */
-	static create(cwd: string, agentDir: string = getAgentDir()): SettingsManager {
-		const storage = new FileSettingsStorage(cwd, agentDir);
+	static create(
+		cwd: string,
+		agentDir: string = getAgentDir(),
+		options: SettingsManagerCreateOptions = {},
+	): SettingsManager {
+		const storage = new FileSettingsStorage(cwd, agentDir, options);
 		return SettingsManager.fromStorage(storage);
 	}
 
 	/** Create a SettingsManager from an arbitrary storage backend */
 	static fromStorage(storage: SettingsStorage): SettingsManager {
+		const projectConfigTrusted = storage.isProjectConfigTrusted?.() ?? true;
 		const globalLoad = SettingsManager.tryLoadFromStorage(storage, "global");
 		const projectLoad = SettingsManager.tryLoadFromStorage(storage, "project");
+		const projectUserLoad = SettingsManager.tryLoadFromStorage(storage, "projectUser");
 		const initialErrors: SettingsError[] = [];
 		if (globalLoad.error) {
 			initialErrors.push({ scope: "global", error: globalLoad.error });
@@ -302,14 +391,20 @@ export class SettingsManager {
 		if (projectLoad.error) {
 			initialErrors.push({ scope: "project", error: projectLoad.error });
 		}
+		if (projectUserLoad.error) {
+			initialErrors.push({ scope: "projectUser", error: projectUserLoad.error });
+		}
 
 		return new SettingsManager(
 			storage,
 			globalLoad.settings,
 			projectLoad.settings,
+			projectUserLoad.settings,
 			globalLoad.error,
 			projectLoad.error,
+			projectUserLoad.error,
 			initialErrors,
+			projectConfigTrusted,
 		);
 	}
 
@@ -416,6 +511,40 @@ export class SettingsManager {
 		return structuredClone(this.projectSettings);
 	}
 
+	getProjectUserSettings(): Settings {
+		return structuredClone(this.projectUserSettings);
+	}
+
+	getProjectSettingsLayers(): ProjectSettingsLayer[] {
+		if (!this.projectConfigTrusted) {
+			return [];
+		}
+		return [
+			{ scope: "projectUser", settings: structuredClone(this.projectUserSettings) },
+			{ scope: "project", settings: structuredClone(this.projectSettings) },
+		];
+	}
+
+	isProjectConfigTrusted(): boolean {
+		return this.projectConfigTrusted;
+	}
+
+	setProjectConfigTrusted(trusted: boolean): void {
+		this.projectConfigTrusted = trusted;
+		this.storage.setProjectConfigTrusted?.(trusted);
+		if (!trusted) {
+			this.projectSettings = {};
+			this.projectUserSettings = {};
+			this.projectSettingsLoadError = null;
+			this.projectUserSettingsLoadError = null;
+			this.modifiedProjectFields.clear();
+			this.modifiedProjectNestedFields.clear();
+			this.modifiedProjectUserFields.clear();
+			this.modifiedProjectUserNestedFields.clear();
+			this.rebuildSettings();
+		}
+	}
+
 	async reload(): Promise<void> {
 		await this.writeQueue;
 		const globalLoad = SettingsManager.tryLoadFromStorage(this.storage, "global");
@@ -431,6 +560,8 @@ export class SettingsManager {
 		this.modifiedNestedFields.clear();
 		this.modifiedProjectFields.clear();
 		this.modifiedProjectNestedFields.clear();
+		this.modifiedProjectUserFields.clear();
+		this.modifiedProjectUserNestedFields.clear();
 
 		const projectLoad = SettingsManager.tryLoadFromStorage(this.storage, "project");
 		if (!projectLoad.error) {
@@ -441,7 +572,16 @@ export class SettingsManager {
 			this.recordError("project", projectLoad.error);
 		}
 
-		this.settings = deepMergeSettings(this.globalSettings, this.projectSettings);
+		const projectUserLoad = SettingsManager.tryLoadFromStorage(this.storage, "projectUser");
+		if (!projectUserLoad.error) {
+			this.projectUserSettings = projectUserLoad.settings;
+			this.projectUserSettingsLoadError = null;
+		} else {
+			this.projectUserSettingsLoadError = projectUserLoad.error;
+			this.recordError("projectUser", projectUserLoad.error);
+		}
+
+		this.rebuildSettings();
 	}
 
 	/** Apply additional overrides on top of current settings */
@@ -471,6 +611,17 @@ export class SettingsManager {
 		}
 	}
 
+	/** Mark a .pi.user field as modified during this session */
+	private markProjectUserModified(field: keyof Settings, nestedKey?: string): void {
+		this.modifiedProjectUserFields.add(field);
+		if (nestedKey) {
+			if (!this.modifiedProjectUserNestedFields.has(field)) {
+				this.modifiedProjectUserNestedFields.set(field, new Set());
+			}
+			this.modifiedProjectUserNestedFields.get(field)!.add(nestedKey);
+		}
+	}
+
 	private recordError(scope: SettingsScope, error: unknown): void {
 		const normalizedError = error instanceof Error ? error : new Error(String(error));
 		this.errors.push({ scope, error: normalizedError });
@@ -482,9 +633,14 @@ export class SettingsManager {
 			this.modifiedNestedFields.clear();
 			return;
 		}
+		if (scope === "project") {
+			this.modifiedProjectFields.clear();
+			this.modifiedProjectNestedFields.clear();
+			return;
+		}
 
-		this.modifiedProjectFields.clear();
-		this.modifiedProjectNestedFields.clear();
+		this.modifiedProjectUserFields.clear();
+		this.modifiedProjectUserNestedFields.clear();
 	}
 
 	private enqueueWrite(scope: SettingsScope, task: () => void): void {
@@ -538,7 +694,7 @@ export class SettingsManager {
 	}
 
 	private save(): void {
-		this.settings = deepMergeSettings(this.globalSettings, this.projectSettings);
+		this.rebuildSettings();
 
 		if (this.globalSettingsLoadError) {
 			return;
@@ -555,7 +711,7 @@ export class SettingsManager {
 
 	private saveProjectSettings(settings: Settings): void {
 		this.projectSettings = structuredClone(settings);
-		this.settings = deepMergeSettings(this.globalSettings, this.projectSettings);
+		this.rebuildSettings();
 
 		if (this.projectSettingsLoadError) {
 			return;
@@ -566,6 +722,22 @@ export class SettingsManager {
 		const modifiedNestedFields = this.cloneModifiedNestedFields(this.modifiedProjectNestedFields);
 		this.enqueueWrite("project", () => {
 			this.persistScopedSettings("project", snapshotProjectSettings, modifiedFields, modifiedNestedFields);
+		});
+	}
+
+	private saveProjectUserSettings(settings: Settings): void {
+		this.projectUserSettings = structuredClone(settings);
+		this.rebuildSettings();
+
+		if (this.projectUserSettingsLoadError) {
+			return;
+		}
+
+		const snapshotProjectUserSettings = structuredClone(this.projectUserSettings);
+		const modifiedFields = new Set(this.modifiedProjectUserFields);
+		const modifiedNestedFields = this.cloneModifiedNestedFields(this.modifiedProjectUserNestedFields);
+		this.enqueueWrite("projectUser", () => {
+			this.persistScopedSettings("projectUser", snapshotProjectUserSettings, modifiedFields, modifiedNestedFields);
 		});
 	}
 
@@ -845,6 +1017,13 @@ export class SettingsManager {
 		this.saveProjectSettings(projectSettings);
 	}
 
+	setProjectUserPackages(packages: PackageSource[]): void {
+		const projectUserSettings = structuredClone(this.projectUserSettings);
+		projectUserSettings.packages = packages;
+		this.markProjectUserModified("packages");
+		this.saveProjectUserSettings(projectUserSettings);
+	}
+
 	getExtensionPaths(): string[] {
 		return [...(this.settings.extensions ?? [])];
 	}
@@ -860,6 +1039,13 @@ export class SettingsManager {
 		projectSettings.extensions = paths;
 		this.markProjectModified("extensions");
 		this.saveProjectSettings(projectSettings);
+	}
+
+	setProjectUserExtensionPaths(paths: string[]): void {
+		const projectUserSettings = structuredClone(this.projectUserSettings);
+		projectUserSettings.extensions = paths;
+		this.markProjectUserModified("extensions");
+		this.saveProjectUserSettings(projectUserSettings);
 	}
 
 	getSkillPaths(): string[] {
@@ -879,6 +1065,13 @@ export class SettingsManager {
 		this.saveProjectSettings(projectSettings);
 	}
 
+	setProjectUserSkillPaths(paths: string[]): void {
+		const projectUserSettings = structuredClone(this.projectUserSettings);
+		projectUserSettings.skills = paths;
+		this.markProjectUserModified("skills");
+		this.saveProjectUserSettings(projectUserSettings);
+	}
+
 	getPromptTemplatePaths(): string[] {
 		return [...(this.settings.prompts ?? [])];
 	}
@@ -896,6 +1089,13 @@ export class SettingsManager {
 		this.saveProjectSettings(projectSettings);
 	}
 
+	setProjectUserPromptTemplatePaths(paths: string[]): void {
+		const projectUserSettings = structuredClone(this.projectUserSettings);
+		projectUserSettings.prompts = paths;
+		this.markProjectUserModified("prompts");
+		this.saveProjectUserSettings(projectUserSettings);
+	}
+
 	getThemePaths(): string[] {
 		return [...(this.settings.themes ?? [])];
 	}
@@ -911,6 +1111,13 @@ export class SettingsManager {
 		projectSettings.themes = paths;
 		this.markProjectModified("themes");
 		this.saveProjectSettings(projectSettings);
+	}
+
+	setProjectUserThemePaths(paths: string[]): void {
+		const projectUserSettings = structuredClone(this.projectUserSettings);
+		projectUserSettings.themes = paths;
+		this.markProjectUserModified("themes");
+		this.saveProjectUserSettings(projectUserSettings);
 	}
 
 	getEnableSkillCommands(): boolean {

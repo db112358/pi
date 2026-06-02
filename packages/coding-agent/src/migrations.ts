@@ -384,6 +384,8 @@ function checkDeprecatedExtensionDirs(baseDir: string, label: string): string[] 
 
 /**
  * Run extension system migrations (commands→prompts) and collect warnings about deprecated directories.
+ * This intentionally runs even for untrusted projects: it performs legacy Pi config
+ * housekeeping only and does not load or execute project extensions.
  */
 function migrateExtensionSystem(cwd: string): string[] {
 	const agentDir = getAgentDir();

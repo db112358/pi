@@ -85,6 +85,7 @@ import { BUILTIN_SLASH_COMMANDS } from "../../core/slash-commands.ts";
 import type { SourceInfo } from "../../core/source-info.ts";
 import { isInstallTelemetryEnabled } from "../../core/telemetry.ts";
 import type { TruncationResult } from "../../core/tools/truncate.ts";
+import { hasProjectConfig, type ProjectTrustDecision, ProjectTrustStore } from "../../core/trust-manager.ts";
 import { getChangelogPath, getNewEntries, parseChangelog } from "../../utils/changelog.ts";
 import { copyToClipboard } from "../../utils/clipboard.ts";
 import { extensionForImageMimeType, readClipboardImage } from "../../utils/clipboard-image.ts";
@@ -255,6 +256,10 @@ export interface InteractiveModeOptions {
 	initialMessages?: string[];
 	/** Force verbose startup (overrides quietStartup setting) */
 	verbose?: boolean;
+	/** Force project config trust for this process */
+	forceProjectConfigTrust?: boolean;
+	/** Update project config trust override for this session and cwd */
+	setProjectConfigTrustOverride?: (cwd: string, trusted: boolean | undefined) => void;
 }
 
 export class InteractiveMode {
@@ -679,6 +684,12 @@ export class InteractiveMode {
 			// Minimal header when silenced
 			this.builtInHeader = new Text("", 0, 0);
 			this.headerContainer.addChild(this.builtInHeader);
+		}
+
+		if (!this.settingsManager.isProjectConfigTrusted() && hasProjectConfig(this.sessionManager.getCwd())) {
+			this.chatContainer.addChild(
+				new Text(theme.fg("warning", "This project is not trusted. Change with /trust"), 1, 0),
+			);
 		}
 
 		this.ui.addChild(this.chatContainer);
@@ -2588,6 +2599,11 @@ export class InteractiveMode {
 			if (text === "/reload") {
 				this.editor.setText("");
 				await this.handleReloadCommand();
+				return;
+			}
+			if (text === "/trust" || text.startsWith("/trust ")) {
+				this.editor.setText("");
+				await this.handleTrustCommand(text);
 				return;
 			}
 			if (text === "/debug") {
@@ -4922,6 +4938,86 @@ export class InteractiveMode {
 	// =========================================================================
 	// Command handlers
 	// =========================================================================
+
+	private formatTrustDecision(decision: ProjectTrustDecision): string {
+		if (decision === true) {
+			return "trusted";
+		}
+		if (decision === false) {
+			return "not trusted";
+		}
+		return "ask";
+	}
+
+	private async selectTrustDecision(): Promise<{ decision: ProjectTrustDecision; remember: boolean } | undefined> {
+		const trustStore = new ProjectTrustStore(getAgentDir());
+		const cwd = this.sessionManager.getCwd();
+		const current = this.formatTrustDecision(trustStore.get(cwd));
+		const choice = await this.showExtensionSelector(
+			`Trust project configuration?\nCurrent setting: ${current}\nLoad .pi and .pi.user from ${cwd}?\nWarning: Project extensions can execute code.`,
+			["Yes (remember)", "Yes (this session)", "No (remember)", "No (this session)"],
+		);
+		if (choice === "Yes (remember)") {
+			return { decision: true, remember: true };
+		}
+		if (choice === "Yes (this session)") {
+			return { decision: true, remember: false };
+		}
+		if (choice === "No (remember)") {
+			return { decision: false, remember: true };
+		}
+		if (choice === "No (this session)") {
+			return { decision: false, remember: false };
+		}
+		return undefined;
+	}
+
+	private async handleTrustCommand(text: string): Promise<void> {
+		if (this.session.isStreaming) {
+			this.showWarning("Wait for the current response to finish before changing trust.");
+			return;
+		}
+		if (this.session.isCompacting) {
+			this.showWarning("Wait for compaction to finish before changing trust.");
+			return;
+		}
+
+		const rawArg = text === "/trust" ? "" : text.slice("/trust".length).trim().toLowerCase();
+		let selection: { decision: ProjectTrustDecision; remember: boolean } | undefined;
+		if (!rawArg) {
+			selection = await this.selectTrustDecision();
+		} else if (rawArg === "yes") {
+			selection = { decision: true, remember: true };
+		} else if (rawArg === "no") {
+			selection = { decision: false, remember: true };
+		} else if (rawArg === "reset") {
+			selection = { decision: null, remember: true };
+		} else {
+			this.showError("Usage: /trust [yes|no|reset]");
+			return;
+		}
+
+		if (selection === undefined) {
+			return;
+		}
+
+		const trustStore = new ProjectTrustStore(getAgentDir());
+		const cwd = this.sessionManager.getCwd();
+		if (selection.remember) {
+			trustStore.set(cwd, selection.decision);
+			this.options.setProjectConfigTrustOverride?.(cwd, undefined);
+		} else {
+			this.options.setProjectConfigTrustOverride?.(
+				cwd,
+				selection.decision === null ? undefined : selection.decision,
+			);
+		}
+		const projectConfigTrusted = this.options.forceProjectConfigTrust === true || selection.decision === true;
+		this.settingsManager.setProjectConfigTrusted(projectConfigTrusted);
+		await this.handleReloadCommand();
+		const suffix = selection.remember ? "" : " (this session)";
+		this.showStatus(`Project trust: ${this.formatTrustDecision(selection.decision)}${suffix}`);
+	}
 
 	private async handleReloadCommand(): Promise<void> {
 		if (this.session.isStreaming) {

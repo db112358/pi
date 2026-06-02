@@ -1,7 +1,7 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, resolve, sep } from "node:path";
 import chalk from "chalk";
-import { CONFIG_DIR_NAME } from "../config.ts";
+import { CONFIG_DIR_NAME, PROJECT_USER_CONFIG_DIR_NAME } from "../config.ts";
 import { loadThemeFromPath, type Theme } from "../modes/interactive/theme/theme.ts";
 import type { ResourceDiagnostic } from "./diagnostics.ts";
 
@@ -11,7 +11,7 @@ import { canonicalizePath, isLocalPath, resolvePath } from "../utils/paths.ts";
 import { createEventBus, type EventBus } from "./event-bus.ts";
 import { createExtensionRuntime, loadExtensionFromFactory, loadExtensions } from "./extensions/loader.ts";
 import type { Extension, ExtensionFactory, ExtensionRuntime, LoadExtensionsResult } from "./extensions/types.ts";
-import { DefaultPackageManager, type PathMetadata } from "./package-manager.ts";
+import { DefaultPackageManager, type MissingSourceAction, type PathMetadata } from "./package-manager.ts";
 import type { PromptTemplate } from "./prompt-templates.ts";
 import { loadPromptTemplates } from "./prompt-templates.ts";
 import { SettingsManager } from "./settings-manager.ts";
@@ -145,6 +145,7 @@ export interface DefaultResourceLoaderOptions {
 	agentsFilesOverride?: (base: { agentsFiles: Array<{ path: string; content: string }> }) => {
 		agentsFiles: Array<{ path: string; content: string }>;
 	};
+	onMissingPackage?: (source: string) => Promise<MissingSourceAction>;
 	systemPromptOverride?: (base: string | undefined) => string | undefined;
 	appendSystemPromptOverride?: (base: string[]) => string[];
 }
@@ -183,6 +184,7 @@ export class DefaultResourceLoader implements ResourceLoader {
 	private agentsFilesOverride?: (base: { agentsFiles: Array<{ path: string; content: string }> }) => {
 		agentsFiles: Array<{ path: string; content: string }>;
 	};
+	private onMissingPackage?: (source: string) => Promise<MissingSourceAction>;
 	private systemPromptOverride?: (base: string | undefined) => string | undefined;
 	private appendSystemPromptOverride?: (base: string[]) => string[];
 
@@ -230,6 +232,7 @@ export class DefaultResourceLoader implements ResourceLoader {
 		this.promptsOverride = options.promptsOverride;
 		this.themesOverride = options.themesOverride;
 		this.agentsFilesOverride = options.agentsFilesOverride;
+		this.onMissingPackage = options.onMissingPackage;
 		this.systemPromptOverride = options.systemPromptOverride;
 		this.appendSystemPromptOverride = options.appendSystemPromptOverride;
 
@@ -320,7 +323,7 @@ export class DefaultResourceLoader implements ResourceLoader {
 
 	async reload(): Promise<void> {
 		await this.settingsManager.reload();
-		const resolvedPaths = await this.packageManager.resolve();
+		const resolvedPaths = await this.packageManager.resolve(this.onMissingPackage);
 		const cliExtensionPaths = await this.packageManager.resolveExtensionSources(this.additionalExtensionPaths, {
 			temporary: true,
 		});
@@ -649,6 +652,10 @@ export class DefaultResourceLoader implements ResourceLoader {
 			join(this.agentDir, "extensions"),
 		];
 		const projectRoots = [
+			join(this.cwd, PROJECT_USER_CONFIG_DIR_NAME, "skills"),
+			join(this.cwd, PROJECT_USER_CONFIG_DIR_NAME, "prompts"),
+			join(this.cwd, PROJECT_USER_CONFIG_DIR_NAME, "themes"),
+			join(this.cwd, PROJECT_USER_CONFIG_DIR_NAME, "extensions"),
 			join(this.cwd, CONFIG_DIR_NAME, "skills"),
 			join(this.cwd, CONFIG_DIR_NAME, "prompts"),
 			join(this.cwd, CONFIG_DIR_NAME, "themes"),
@@ -851,9 +858,13 @@ export class DefaultResourceLoader implements ResourceLoader {
 	}
 
 	private discoverSystemPromptFile(): string | undefined {
-		const projectPath = join(this.cwd, CONFIG_DIR_NAME, "SYSTEM.md");
-		if (existsSync(projectPath)) {
-			return projectPath;
+		const projectPaths = this.settingsManager.isProjectConfigTrusted()
+			? [join(this.cwd, PROJECT_USER_CONFIG_DIR_NAME, "SYSTEM.md"), join(this.cwd, CONFIG_DIR_NAME, "SYSTEM.md")]
+			: [];
+		for (const projectPath of projectPaths) {
+			if (existsSync(projectPath)) {
+				return projectPath;
+			}
 		}
 
 		const globalPath = join(this.agentDir, "SYSTEM.md");
@@ -865,9 +876,16 @@ export class DefaultResourceLoader implements ResourceLoader {
 	}
 
 	private discoverAppendSystemPromptFile(): string | undefined {
-		const projectPath = join(this.cwd, CONFIG_DIR_NAME, "APPEND_SYSTEM.md");
-		if (existsSync(projectPath)) {
-			return projectPath;
+		const projectPaths = this.settingsManager.isProjectConfigTrusted()
+			? [
+					join(this.cwd, PROJECT_USER_CONFIG_DIR_NAME, "APPEND_SYSTEM.md"),
+					join(this.cwd, CONFIG_DIR_NAME, "APPEND_SYSTEM.md"),
+				]
+			: [];
+		for (const projectPath of projectPaths) {
+			if (existsSync(projectPath)) {
+				return projectPath;
+			}
 		}
 
 		const globalPath = join(this.agentDir, "APPEND_SYSTEM.md");

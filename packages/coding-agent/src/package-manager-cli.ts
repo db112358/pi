@@ -14,6 +14,7 @@ import {
 } from "./config.ts";
 import { DefaultPackageManager } from "./core/package-manager.ts";
 import { SettingsManager } from "./core/settings-manager.ts";
+import { hasProjectConfig } from "./core/trust-manager.ts";
 import { spawnProcess } from "./utils/child-process.ts";
 import { getLatestPiRelease, isNewerPackageVersion } from "./utils/version-check.ts";
 import {
@@ -47,12 +48,18 @@ interface PackageCommandOptions {
 	source?: string;
 	updateTarget?: UpdateTarget;
 	local: boolean;
+	localUser: boolean;
 	force: boolean;
 	help: boolean;
 	invalidOption?: string;
 	invalidArgument?: string;
 	missingOptionValue?: string;
 	conflictingOptions?: string;
+}
+
+interface ProjectConfigCommandContext {
+	projectConfigTrusted?: boolean;
+	projectConfigExists?: boolean;
 }
 
 function reportSettingsErrors(settingsManager: SettingsManager, context: string): void {
@@ -68,13 +75,13 @@ function reportSettingsErrors(settingsManager: SettingsManager, context: string)
 function getPackageCommandUsage(command: PackageCommand): string {
 	switch (command) {
 		case "install":
-			return `${APP_NAME} install <source> [-l]`;
+			return `${APP_NAME} install <source> [-l] [-u]`;
 		case "remove":
-			return `${APP_NAME} remove <source> [-l]`;
+			return `${APP_NAME} remove <source> [-l] [-u]`;
 		case "update":
 			return `${APP_NAME} update [source|self|pi] [--self] [--extensions] [--extension <source>] [--force]`;
 		case "list":
-			return `${APP_NAME} list`;
+			return `${APP_NAME} list [--force]`;
 	}
 }
 
@@ -88,6 +95,8 @@ Install a package and add it to settings.
 
 Options:
   -l, --local    Install project-locally (.pi/settings.json)
+  -u, --user     With --local, write to .pi.user/settings.json instead
+  -f, --force    Trust project config for this command
 
 Examples:
   ${APP_NAME} install npm:@foo/bar
@@ -104,10 +113,12 @@ Examples:
   ${getPackageCommandUsage("remove")}
 
 Remove a package and its source from settings.
-Alias: ${APP_NAME} uninstall <source> [-l]
+Alias: ${APP_NAME} uninstall <source> [-l] [-u]
 
 Options:
   -l, --local    Remove from project settings (.pi/settings.json)
+  -u, --user     With --local, remove from .pi.user/settings.json instead
+  -f, --force    Trust project config for this command
 
 Examples:
   ${APP_NAME} remove npm:@foo/bar
@@ -139,6 +150,9 @@ Short forms:
   ${getPackageCommandUsage("list")}
 
 List installed packages from user and project settings.
+
+Options:
+  -f, --force    Trust project config for this command
 `);
 			return;
 	}
@@ -157,6 +171,7 @@ function parsePackageCommand(args: string[]): PackageCommandOptions | undefined 
 	}
 
 	let local = false;
+	let localUser = false;
 	let force = false;
 	let help = false;
 	let invalidOption: string | undefined;
@@ -184,6 +199,15 @@ function parsePackageCommand(args: string[]): PackageCommandOptions | undefined 
 			continue;
 		}
 
+		if (arg === "-u" || arg === "--user") {
+			if (command === "install" || command === "remove") {
+				localUser = true;
+			} else {
+				invalidOption = invalidOption ?? arg;
+			}
+			continue;
+		}
+
 		if (arg === "--self") {
 			if (command === "update") {
 				selfFlag = true;
@@ -202,12 +226,8 @@ function parsePackageCommand(args: string[]): PackageCommandOptions | undefined 
 			continue;
 		}
 
-		if (arg === "--force") {
-			if (command === "update") {
-				force = true;
-			} else {
-				invalidOption = invalidOption ?? arg;
-			}
+		if (arg === "--force" || arg === "-f") {
+			force = true;
 			continue;
 		}
 
@@ -274,11 +294,16 @@ function parsePackageCommand(args: string[]): PackageCommandOptions | undefined 
 		}
 	}
 
+	if (localUser && !local) {
+		conflictingOptions = conflictingOptions ?? "--user can only be used with --local";
+	}
+
 	return {
 		command,
 		source,
 		updateTarget,
 		local,
+		localUser,
 		force,
 		help,
 		invalidOption,
@@ -286,6 +311,14 @@ function parsePackageCommand(args: string[]): PackageCommandOptions | undefined 
 		missingOptionValue,
 		conflictingOptions,
 	};
+}
+
+export function packageCommandForcesProjectConfigTrust(args: string[]): boolean {
+	const options = parsePackageCommand(args);
+	return (
+		options?.force === true &&
+		(options.command === "install" || options.command === "remove" || options.command === "list")
+	);
 }
 
 function updateTargetIncludesSelf(target: UpdateTarget): boolean {
@@ -389,14 +422,16 @@ function prepareWindowsNpmSelfUpdate(): void {
 	quarantineWindowsNativeDependencies(packageDir);
 }
 
-export async function handleConfigCommand(args: string[]): Promise<boolean> {
+export async function handleConfigCommand(args: string[], context: ProjectConfigCommandContext = {}): Promise<boolean> {
 	if (args[0] !== "config") {
 		return false;
 	}
 
 	const cwd = process.cwd();
 	const agentDir = getAgentDir();
-	const settingsManager = SettingsManager.create(cwd, agentDir);
+	const settingsManager = SettingsManager.create(cwd, agentDir, {
+		projectConfigTrusted: context.projectConfigTrusted ?? true,
+	});
 	reportSettingsErrors(settingsManager, "config command");
 	const packageManager = new DefaultPackageManager({ cwd, agentDir, settingsManager });
 	const resolvedPaths = await packageManager.resolve();
@@ -411,7 +446,10 @@ export async function handleConfigCommand(args: string[]): Promise<boolean> {
 	process.exit(0);
 }
 
-export async function handlePackageCommand(args: string[]): Promise<boolean> {
+export async function handlePackageCommand(
+	args: string[],
+	context: ProjectConfigCommandContext = {},
+): Promise<boolean> {
 	const options = parsePackageCommand(args);
 	if (!options) {
 		return false;
@@ -459,8 +497,20 @@ export async function handlePackageCommand(args: string[]): Promise<boolean> {
 	}
 
 	const cwd = process.cwd();
+	const projectConfigTrusted = context.projectConfigTrusted ?? true;
+	const projectConfigExists = context.projectConfigExists ?? hasProjectConfig(cwd);
+	const writesProjectPackageConfig = (options.command === "install" || options.command === "remove") && options.local;
+	if (!projectConfigTrusted && projectConfigExists && writesProjectPackageConfig) {
+		console.error(chalk.red("Project config is not trusted. Use --force to modify local package config."));
+		process.exitCode = 1;
+		return true;
+	}
+
 	const agentDir = getAgentDir();
-	const settingsManager = SettingsManager.create(cwd, agentDir);
+	const effectiveProjectConfigTrusted = projectConfigTrusted || (writesProjectPackageConfig && !projectConfigExists);
+	const settingsManager = SettingsManager.create(cwd, agentDir, {
+		projectConfigTrusted: effectiveProjectConfigTrusted,
+	});
 	reportSettingsErrors(settingsManager, "package command");
 	const selfUpdateNpmCommand = settingsManager.getGlobalSettings().npmCommand;
 
@@ -475,12 +525,15 @@ export async function handlePackageCommand(args: string[]): Promise<boolean> {
 	try {
 		switch (options.command) {
 			case "install":
-				await packageManager.installAndPersist(source!, { local: options.local });
+				await packageManager.installAndPersist(source!, { local: options.local, localUser: options.localUser });
 				console.log(chalk.green(`Installed ${source}`));
 				return true;
 
 			case "remove": {
-				const removed = await packageManager.removeAndPersist(source!, { local: options.local });
+				const removed = await packageManager.removeAndPersist(source!, {
+					local: options.local,
+					localUser: options.localUser,
+				});
 				if (!removed) {
 					console.error(chalk.red(`No matching package found for ${source}`));
 					process.exitCode = 1;
@@ -494,6 +547,7 @@ export async function handlePackageCommand(args: string[]): Promise<boolean> {
 				const configuredPackages = packageManager.listConfiguredPackages();
 				const userPackages = configuredPackages.filter((pkg) => pkg.scope === "user");
 				const projectPackages = configuredPackages.filter((pkg) => pkg.scope === "project");
+				const projectUserPackages = configuredPackages.filter((pkg) => pkg.scope === "projectUser");
 
 				if (configuredPackages.length === 0) {
 					console.log(chalk.dim("No packages installed."));
@@ -519,6 +573,14 @@ export async function handlePackageCommand(args: string[]): Promise<boolean> {
 					if (userPackages.length > 0) console.log();
 					console.log(chalk.bold("Project packages:"));
 					for (const pkg of projectPackages) {
+						formatPackage(pkg);
+					}
+				}
+
+				if (projectUserPackages.length > 0) {
+					if (userPackages.length > 0 || projectPackages.length > 0) console.log();
+					console.log(chalk.bold("Project user packages:"));
+					for (const pkg of projectUserPackages) {
 						formatPackage(pkg);
 					}
 				}
