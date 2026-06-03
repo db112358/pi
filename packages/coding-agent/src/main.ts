@@ -498,12 +498,12 @@ async function promptForProjectTrust(cwd: string, settingsManager: SettingsManag
 async function resolveProjectPiTrusted(options: {
 	cwd: string;
 	trustStore: ProjectTrustStore;
-	force: boolean;
+	projectPiApproval?: boolean;
 	appMode: AppMode;
 	settingsManagerForPrompt: SettingsManager;
 }): Promise<boolean> {
-	if (options.force) {
-		return true;
+	if (options.projectPiApproval !== undefined) {
+		return options.projectPiApproval;
 	}
 	if (!hasProjectPiDirectory(options.cwd)) {
 		return false;
@@ -597,12 +597,12 @@ export async function main(args: string[], options?: MainOptions) {
 	const agentDir = getAgentDir();
 	const promptSettingsManager = SettingsManager.create(cwd, agentDir, { projectConfigTrusted: false });
 	const trustPromptMode: AppMode = parsed.help || parsed.listModels !== undefined ? "print" : appMode;
-	const forceProjectPiTrust = parsed.force === true;
+	const projectPiApproval = parsed.projectPiApproval;
 	const trustStore = new ProjectTrustStore(agentDir);
 	const startupProjectPiTrusted = await resolveProjectPiTrusted({
 		cwd,
 		trustStore,
-		force: forceProjectPiTrust,
+		projectPiApproval,
 		appMode: trustPromptMode,
 		settingsManagerForPrompt: promptSettingsManager,
 	});
@@ -655,7 +655,7 @@ export async function main(args: string[], options?: MainOptions) {
 		await resolveProjectPiTrusted({
 			cwd: initialRuntimeCwd,
 			trustStore,
-			force: forceProjectPiTrust,
+			projectPiApproval,
 			appMode: trustPromptMode,
 			settingsManagerForPrompt: promptSettingsManager,
 		});
@@ -671,7 +671,7 @@ export async function main(args: string[], options?: MainOptions) {
 		sessionManager,
 		sessionStartEvent,
 	}) => {
-		const projectPiTrusted = forceProjectPiTrust || (hasProjectPiDirectory(cwd) && trustStore.get(cwd) === true);
+		const projectPiTrusted = projectPiApproval ?? (hasProjectPiDirectory(cwd) && trustStore.get(cwd) === true);
 		const runtimeSettingsManager = SettingsManager.create(cwd, agentDir, { projectConfigTrusted: projectPiTrusted });
 		const services = await createAgentSessionServices({
 			cwd,
@@ -832,7 +832,7 @@ export async function main(args: string[], options?: MainOptions) {
 			initialImages,
 			initialMessages: parsed.messages,
 			verbose: parsed.verbose,
-			forceProjectPiTrust,
+			projectPiApproval,
 		});
 		if (startupBenchmark) {
 			await interactiveMode.init();

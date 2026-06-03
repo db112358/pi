@@ -113,7 +113,7 @@ Append to the default prompt without replacing it with `APPEND_SYSTEM.md` in tho
 
 ### Project Trust
 
-Interactive startup asks before loading `.pi` in a working directory whose trust has not been set. Decisions are stored in `~/.pi/agent/trust.json` by CWD: `true` loads the project `.pi` directory, `false` skips all project `.pi` settings, resources, packages, and migrations, and a missing entry asks again. Use `/trust yes`, `/trust no`, `/trust reset`, or `/trust` to update the current CWD. Use `--force`/`-f` to load project `.pi` for one run regardless of trust.
+Interactive startup asks before loading `.pi` in a working directory whose trust has not been set. Decisions are stored in `~/.pi/agent/trust.json` by CWD: `true` loads the project `.pi` directory, `false` skips all project `.pi` settings, resources, packages, and migrations, and a missing entry asks again. Use `/trust yes`, `/trust no`, `/trust reset`, or `/trust` to update the current CWD. Use `--approve`/`-a` to load project `.pi` for one run regardless of trust, or `--no-approve`/`-na` to skip it for one run.
 
 ## Exporting and Sharing Sessions
 
@@ -224,7 +224,8 @@ pi --no-extensions -e ./my-extension.ts
 | `--system-prompt <text>` | Replace default prompt; context files and skills are still appended |
 | `--append-system-prompt <text>` | Append to system prompt |
 | `--verbose` | Force verbose startup |
-| `-f`, `--force` | Force loading project `.pi` regardless of trust |
+| `-a`, `--approve` | Load project `.pi` regardless of trust |
+| `-na`, `--no-approve` | Skip project `.pi` regardless of trust |
 | `-h`, `--help` | Show help |
 | `-v`, `--version` | Show version |
 

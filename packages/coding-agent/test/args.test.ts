@@ -293,6 +293,28 @@ describe("parseArgs", () => {
 		});
 	});
 
+	describe("project .pi approval flags", () => {
+		test("parses --approve", () => {
+			const result = parseArgs(["--approve"]);
+			expect(result.projectPiApproval).toBe(true);
+		});
+
+		test("parses -a shorthand", () => {
+			const result = parseArgs(["-a"]);
+			expect(result.projectPiApproval).toBe(true);
+		});
+
+		test("parses --no-approve", () => {
+			const result = parseArgs(["--no-approve"]);
+			expect(result.projectPiApproval).toBe(false);
+		});
+
+		test("parses -na shorthand", () => {
+			const result = parseArgs(["-na"]);
+			expect(result.projectPiApproval).toBe(false);
+		});
+	});
+
 	describe("--verbose flag", () => {
 		test("parses --verbose flag", () => {
 			const result = parseArgs(["--verbose"]);

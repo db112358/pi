@@ -46,7 +46,7 @@ export interface Args {
 	listModels?: string | true;
 	offline?: boolean;
 	verbose?: boolean;
-	force?: boolean;
+	projectPiApproval?: boolean;
 	messages: string[];
 	fileArgs: string[];
 	/** Unknown flags (potentially extension flags) - map of flag name to value */
@@ -177,8 +177,10 @@ export function parseArgs(args: string[]): Args {
 			}
 		} else if (arg === "--verbose") {
 			result.verbose = true;
-		} else if (arg === "--force" || arg === "-f") {
-			result.force = true;
+		} else if (arg === "--approve" || arg === "-a") {
+			result.projectPiApproval = true;
+		} else if (arg === "--no-approve" || arg === "-na") {
+			result.projectPiApproval = false;
 		} else if (arg === "--offline") {
 			result.offline = true;
 		} else if (arg.startsWith("@")) {
@@ -228,8 +230,10 @@ ${chalk.bold("Commands:")}
   ${APP_NAME} remove <source> [-l]      Remove extension source from settings
   ${APP_NAME} uninstall <source> [-l]   Alias for remove
   ${APP_NAME} update [source|self|pi]   Update pi and installed extensions
-  ${APP_NAME} list [--force]            List installed extensions from settings
-  ${APP_NAME} config [--force]          Open TUI to enable/disable package resources
+  ${APP_NAME} list [--approve|--no-approve]
+                                 List installed extensions from settings
+  ${APP_NAME} config [--approve|--no-approve]
+                                 Open TUI to enable/disable package resources
   ${APP_NAME} <command> --help          Show help for install/remove/uninstall/update/list
 
 ${chalk.bold("Options:")}
@@ -269,7 +273,8 @@ ${chalk.bold("Options:")}
   --export <file>                Export session file to HTML and exit
   --list-models [search]         List available models (with optional fuzzy search)
   --verbose                      Force verbose startup (overrides quietStartup setting)
-  --force, -f                    Force loading project .pi
+  --approve, -a                  Load project .pi for this run regardless of trust
+  --no-approve, -na              Skip project .pi for this run regardless of trust
   --offline                      Disable startup network operations (same as PI_OFFLINE=1)
   --help, -h                     Show this help
   --version, -v                  Show version number

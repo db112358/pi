@@ -256,8 +256,8 @@ export interface InteractiveModeOptions {
 	initialMessages?: string[];
 	/** Force verbose startup (overrides quietStartup setting) */
 	verbose?: boolean;
-	/** Force project .pi trust for this process */
-	forceProjectPiTrust?: boolean;
+	/** Override project .pi trust for this process */
+	projectPiApproval?: boolean;
 }
 
 export class InteractiveMode {
@@ -5000,7 +5000,7 @@ export class InteractiveMode {
 		}
 
 		trustStore.set(cwd, decision);
-		const projectPiTrusted = this.options.forceProjectPiTrust === true || decision === true;
+		const projectPiTrusted = this.options.projectPiApproval ?? decision === true;
 		this.settingsManager.setProjectConfigTrusted(projectPiTrusted);
 		await this.handleReloadCommand();
 		this.showStatus(`Project trust: ${this.formatTrustDecision(decision)}`);

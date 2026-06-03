@@ -49,6 +49,7 @@ interface PackageCommandOptions {
 	updateTarget?: UpdateTarget;
 	local: boolean;
 	force: boolean;
+	projectPiApproval?: boolean;
 	help: boolean;
 	invalidOption?: string;
 	invalidArgument?: string;
@@ -73,9 +74,9 @@ function getPackageCommandUsage(command: PackageCommand): string {
 		case "remove":
 			return `${APP_NAME} remove <source> [-l]`;
 		case "update":
-			return `${APP_NAME} update [source|self|pi] [--self] [--extensions] [--extension <source>] [--force]`;
+			return `${APP_NAME} update [source|self|pi] [--self] [--extensions] [--extension <source>] [--approve|--no-approve] [--force]`;
 		case "list":
-			return `${APP_NAME} list [--force]`;
+			return `${APP_NAME} list [--approve|--no-approve]`;
 	}
 }
 
@@ -88,8 +89,9 @@ function printPackageCommandHelp(command: PackageCommand): void {
 Install a package and add it to settings.
 
 Options:
-  -l, --local    Install project-locally (.pi/settings.json)
-  -f, --force    Trust project .pi for this command
+  -l, --local       Install project-locally (.pi/settings.json)
+  -a, --approve     Load project .pi for this command
+  -na, --no-approve Skip project .pi for this command
 
 Examples:
   ${APP_NAME} install npm:@foo/bar
@@ -109,8 +111,9 @@ Remove a package and its source from settings.
 Alias: ${APP_NAME} uninstall <source> [-l]
 
 Options:
-  -l, --local    Remove from project settings (.pi/settings.json)
-  -f, --force    Trust project .pi for this command
+  -l, --local       Remove from project settings (.pi/settings.json)
+  -a, --approve     Load project .pi for this command
+  -na, --no-approve Skip project .pi for this command
 
 Examples:
   ${APP_NAME} remove npm:@foo/bar
@@ -128,6 +131,8 @@ Options:
   --self                  Update pi only
   --extensions            Update installed packages only
   --extension <source>    Update one package only
+  -a, --approve           Load project .pi for this command
+  -na, --no-approve       Skip project .pi for this command
   --force                 Reinstall pi even if the current version is latest
 
 Short forms:
@@ -144,7 +149,8 @@ Short forms:
 List installed packages from user and project settings.
 
 Options:
-  -f, --force    Trust project .pi for this command
+  -a, --approve      Load project .pi for this command
+  -na, --no-approve  Skip project .pi for this command
 `);
 			return;
 	}
@@ -164,6 +170,7 @@ function parsePackageCommand(args: string[]): PackageCommandOptions | undefined 
 
 	let local = false;
 	let force = false;
+	let projectPiApproval: boolean | undefined;
 	let help = false;
 	let invalidOption: string | undefined;
 	let invalidArgument: string | undefined;
@@ -208,8 +215,22 @@ function parsePackageCommand(args: string[]): PackageCommandOptions | undefined 
 			continue;
 		}
 
-		if (arg === "--force" || arg === "-f") {
-			force = true;
+		if (arg === "--approve" || arg === "-a") {
+			projectPiApproval = true;
+			continue;
+		}
+
+		if (arg === "--no-approve" || arg === "-na") {
+			projectPiApproval = false;
+			continue;
+		}
+
+		if (arg === "--force") {
+			if (command === "update") {
+				force = true;
+			} else {
+				invalidOption = invalidOption ?? arg;
+			}
 			continue;
 		}
 
@@ -282,6 +303,7 @@ function parsePackageCommand(args: string[]): PackageCommandOptions | undefined 
 		updateTarget,
 		local,
 		force,
+		projectPiApproval,
 		help,
 		invalidOption,
 		invalidArgument,
@@ -391,6 +413,18 @@ function prepareWindowsNpmSelfUpdate(): void {
 	quarantineWindowsNativeDependencies(packageDir);
 }
 
+function parseProjectPiApproval(args: readonly string[]): boolean | undefined {
+	let approval: boolean | undefined;
+	for (const arg of args) {
+		if (arg === "--approve" || arg === "-a") {
+			approval = true;
+		} else if (arg === "--no-approve" || arg === "-na") {
+			approval = false;
+		}
+	}
+	return approval;
+}
+
 export async function handleConfigCommand(args: string[]): Promise<boolean> {
 	if (args[0] !== "config") {
 		return false;
@@ -399,11 +433,9 @@ export async function handleConfigCommand(args: string[]): Promise<boolean> {
 	const cwd = process.cwd();
 	const agentDir = getAgentDir();
 	const projectPiExists = hasProjectPiDirectory(cwd);
+	const projectPiApproval = parseProjectPiApproval(args);
 	const projectPiTrusted =
-		!projectPiExists ||
-		args.includes("--force") ||
-		args.includes("-f") ||
-		new ProjectTrustStore(agentDir).get(cwd) === true;
+		projectPiApproval ?? (!projectPiExists || new ProjectTrustStore(agentDir).get(cwd) === true);
 	const settingsManager = SettingsManager.create(cwd, agentDir, { projectConfigTrusted: projectPiTrusted });
 	reportSettingsErrors(settingsManager, "config command");
 	const packageManager = new DefaultPackageManager({ cwd, agentDir, settingsManager });
@@ -470,14 +502,12 @@ export async function handlePackageCommand(args: string[]): Promise<boolean> {
 	const agentDir = getAgentDir();
 	const projectPiExists = hasProjectPiDirectory(cwd);
 	const writesProjectPackageConfig = (options.command === "install" || options.command === "remove") && options.local;
-	const commandForcesProjectPiTrust =
-		options.force && (options.command === "install" || options.command === "remove" || options.command === "list");
 	const projectPiTrusted =
-		commandForcesProjectPiTrust ||
-		(projectPiExists && new ProjectTrustStore(agentDir).get(cwd) === true) ||
-		(writesProjectPackageConfig && !projectPiExists);
-	if (!projectPiTrusted && projectPiExists && writesProjectPackageConfig) {
-		console.error(chalk.red("Project .pi is not trusted. Use --force to modify local package config."));
+		options.projectPiApproval ??
+		((projectPiExists && new ProjectTrustStore(agentDir).get(cwd) === true) ||
+			(writesProjectPackageConfig && !projectPiExists));
+	if (!projectPiTrusted && writesProjectPackageConfig) {
+		console.error(chalk.red("Project .pi is not trusted. Use --approve to modify local package config."));
 		process.exitCode = 1;
 		return true;
 	}
