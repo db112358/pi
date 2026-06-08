@@ -11,13 +11,15 @@ Edit directly or use `/settings` for common options.
 
 ## Project Trust
 
-On interactive startup, pi asks before trusting a project folder that contains project-local inputs and has no saved decision in `~/.pi/agent/trust.json`. Trusting a project allows pi to read project instructions (`AGENTS.md`/`CLAUDE.md`), load `.pi/settings.json` and `.pi` resources, install missing project packages, and execute project extensions.
+On interactive startup, pi asks before trusting a project folder that contains project-local inputs and has no saved decision for the folder or a parent folder in `~/.pi/agent/trust.json`. Trusting a project allows pi to read project instructions (`AGENTS.md`/`CLAUDE.md`), load `.pi/settings.json` and `.pi` resources, install missing project packages, and execute project extensions. The closest saved decision on the current or parent path applies, so trusting `~/Development` also trusts `~/Development/pi` unless a narrower decision overrides it.
 
-Non-interactive modes (`-p`, `--mode json`, and `--mode rpc`) do not show a trust prompt. Without a saved trust decision, they ignore project-local inputs unless `--approve`/`-a` is passed. Use `--no-approve`/`-na` to ignore project-local inputs for one run even when the project is trusted.
+Non-interactive modes (`-p`, `--mode json`, and `--mode rpc`) do not show a trust prompt. Without an applicable saved trust decision, they ignore project-local inputs unless `--approve`/`-a` is passed. Use `--no-approve`/`-na` to ignore project-local inputs for one run even when the project is trusted.
+
+Set global `projectTrust` to `"ask"` (ask when unknown, default), `"always"` (always trust; override with `-na`), or `"never"` (never trust; override with `-a`). Saved decisions in `trust.json`, `--approve`/`--no-approve`, and extension `project_trust` handlers take precedence.
 
 `pi config` assumes project trust for that command so you can view and change project resource settings before starting a session. It does not save a trust decision; starting a session in that folder still prompts. Pass `--no-approve` to hide project-local inputs in `pi config`.
 
-Use `/trust` in interactive mode to save a project trust decision for future sessions. It writes `~/.pi/agent/trust.json` only; the current session is not reloaded, so restart pi for changes to take effect.
+Use `/trust` in interactive mode to save a project trust decision for future sessions, including trust for the immediate parent folder. It writes `~/.pi/agent/trust.json` only; the current session is not reloaded, so restart pi for changes to take effect.
 
 ## All Settings
 
@@ -43,6 +45,12 @@ Use `/trust` in interactive mode to save a project trust decision for future ses
   }
 }
 ```
+
+### Security
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `projectTrust` | string | `"ask"` | Should unknown projects be trusted to load extensions and agent files? `"ask"` asks when unknown, `"always"` always trusts (override with `-na`), and `"never"` never trusts (override with `-a`). This is read from global settings only. |
 
 ### UI & Display
 

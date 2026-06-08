@@ -17,7 +17,7 @@ describe("TrustSelectorComponent", () => {
 	it("marks the saved trusted decision", () => {
 		const selector = new TrustSelectorComponent({
 			cwd: "/project",
-			savedDecision: true,
+			savedDecision: { path: "/project", decision: true },
 			projectTrusted: true,
 			onSelect: () => {},
 			onCancel: () => {},
@@ -25,7 +25,7 @@ describe("TrustSelectorComponent", () => {
 
 		const output = stripAnsi(selector.render(120).join("\n"));
 
-		expect(output).toContain("Saved decision: trusted");
+		expect(output).toContain("Saved decision: trusted (/project)");
 		expect(output).toContain("Current session: trusted");
 		expect(output).toContain("Trust ✓");
 		expect(output).not.toContain("Do not trust ✓");
@@ -43,6 +43,30 @@ describe("TrustSelectorComponent", () => {
 
 		selector.handleInput("\n");
 
-		expect(onSelect).toHaveBeenCalledWith(true);
+		expect(onSelect).toHaveBeenCalledWith({ trusted: true, updates: [{ cwd: "/project", decision: true }] });
+	});
+
+	it("adds a trust parent option", () => {
+		const onSelect = vi.fn();
+		const selector = new TrustSelectorComponent({
+			cwd: "/parent/project",
+			savedDecision: { path: "/parent", decision: true },
+			projectTrusted: true,
+			onSelect,
+			onCancel: () => {},
+		});
+
+		const output = stripAnsi(selector.render(120).join("\n"));
+		expect(output).toContain("Trust parent folder (/parent) ✓");
+
+		selector.handleInput("\n");
+
+		expect(onSelect).toHaveBeenCalledWith({
+			trusted: true,
+			updates: [
+				{ cwd: "/parent", decision: true },
+				{ cwd: "/parent/project", decision: null },
+			],
+		});
 	});
 });

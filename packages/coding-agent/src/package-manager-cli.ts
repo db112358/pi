@@ -429,7 +429,15 @@ function resolveProjectTrusted(cwd: string, agentDir: string, trustOverride: boo
 	if (trustOverride !== undefined) {
 		return trustOverride;
 	}
-	return !hasProjectTrustInputs(cwd) || new ProjectTrustStore(agentDir).get(cwd) === true;
+	if (!hasProjectTrustInputs(cwd)) {
+		return true;
+	}
+	const decision = new ProjectTrustStore(agentDir).get(cwd);
+	if (decision !== null) {
+		return decision;
+	}
+	const settingsManager = SettingsManager.create(cwd, agentDir, { projectTrusted: false });
+	return settingsManager.getProjectTrustSetting() === "always";
 }
 
 export async function handleConfigCommand(args: string[]): Promise<boolean> {

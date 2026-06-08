@@ -41,7 +41,12 @@ import {
 import { assertValidSessionId, SessionManager } from "./core/session-manager.ts";
 import { SettingsManager } from "./core/settings-manager.ts";
 import { printTimings, resetTimings, time } from "./core/timings.ts";
-import { hasProjectTrustInputs, ProjectTrustStore } from "./core/trust-manager.ts";
+import {
+	getProjectTrustOptions,
+	hasProjectTrustInputs,
+	type ProjectTrustOption,
+	ProjectTrustStore,
+} from "./core/trust-manager.ts";
 import { runMigrations, showDeprecationWarnings } from "./migrations.ts";
 import { InteractiveMode, runPrintMode, runRpcMode } from "./modes/index.ts";
 import { ExtensionInputComponent } from "./modes/interactive/components/extension-input.ts";
@@ -530,38 +535,40 @@ async function promptForMissingSessionCwd(
 	]);
 }
 
-interface ProjectTrustPromptResult {
-	trusted: boolean;
-	remember: boolean;
+function getProjectTrustPromptOptions(cwd: string): Array<{ label: string; value: ProjectTrustOption }> {
+	return getProjectTrustOptions(cwd, { includeSessionOnly: true }).map((option) => ({
+		label: option.label,
+		value: option,
+	}));
 }
 
-const PROJECT_TRUST_PROMPT_OPTIONS: Array<{ label: string; value: ProjectTrustPromptResult }> = [
-	{ label: "Trust", value: { trusted: true, remember: true } },
-	{ label: "Trust (this session only)", value: { trusted: true, remember: false } },
-	{ label: "Do not trust", value: { trusted: false, remember: true } },
-	{ label: "Do not trust (this session only)", value: { trusted: false, remember: false } },
-];
+function saveProjectTrustPromptResult(trustStore: ProjectTrustStore, result: ProjectTrustOption): void {
+	if (result.updates.length > 0) {
+		trustStore.setMany(result.updates);
+	}
+}
 
 function formatProjectTrustPrompt(cwd: string): string {
-	return `Trust project folder?\n${cwd}\n\nThis allows pi to read project instructions (AGENTS.md/CLAUDE.md), load .pi settings and resources, install missing project packages, and execute project extensions.`;
+	return `Trust project folder?\n${cwd}\n\nThis allows pi to read project instructions (AGENTS.md/CLAUDE.md), load .pi settings and resources, install missing project packages, and execute project extensions.\n\nChange this default in /settings with Trust projects.`;
 }
 
 async function promptForProjectTrust(
 	cwd: string,
 	settingsManager: SettingsManager,
-): Promise<ProjectTrustPromptResult | undefined> {
-	return showStartupSelector(settingsManager, formatProjectTrustPrompt(cwd), PROJECT_TRUST_PROMPT_OPTIONS);
+): Promise<ProjectTrustOption | undefined> {
+	return showStartupSelector(settingsManager, formatProjectTrustPrompt(cwd), getProjectTrustPromptOptions(cwd));
 }
 
 async function promptForProjectTrustWithContext(
 	cwd: string,
 	ctx: ProjectTrustContext,
-): Promise<ProjectTrustPromptResult | undefined> {
+): Promise<ProjectTrustOption | undefined> {
+	const options = getProjectTrustPromptOptions(cwd);
 	const selected = await ctx.ui.select(
 		formatProjectTrustPrompt(cwd),
-		PROJECT_TRUST_PROMPT_OPTIONS.map((option) => option.label),
+		options.map((option) => option.label),
 	);
-	return PROJECT_TRUST_PROMPT_OPTIONS.find((option) => option.label === selected)?.value;
+	return options.find((option) => option.label === selected)?.value;
 }
 
 function createProjectTrustContext(options: {
@@ -660,12 +667,17 @@ async function resolveProjectTrusted(options: {
 	if (decision !== null) {
 		return decision;
 	}
+	const projectTrustSetting = options.settingsManagerForPrompt.getProjectTrustSetting();
+	if (projectTrustSetting === "always") {
+		return true;
+	}
+	if (projectTrustSetting === "never") {
+		return false;
+	}
 	if (options.projectTrustContext?.hasUI) {
 		const selected = await promptForProjectTrustWithContext(options.cwd, options.projectTrustContext);
 		if (selected !== undefined) {
-			if (selected.remember) {
-				options.trustStore.set(options.cwd, selected.trusted);
-			}
+			saveProjectTrustPromptResult(options.trustStore, selected);
 			return selected.trusted;
 		}
 		return false;
@@ -676,9 +688,7 @@ async function resolveProjectTrusted(options: {
 
 	const selected = await promptForProjectTrust(options.cwd, options.settingsManagerForPrompt);
 	if (selected !== undefined) {
-		if (selected.remember) {
-			options.trustStore.set(options.cwd, selected.trusted);
-		}
+		saveProjectTrustPromptResult(options.trustStore, selected);
 		return selected.trusted;
 	}
 	return false;

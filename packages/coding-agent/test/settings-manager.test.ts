@@ -215,6 +215,29 @@ describe("SettingsManager", () => {
 	});
 
 	describe("project trust", () => {
+		it("should persist the default project trust setting globally", async () => {
+			const manager = SettingsManager.create(projectDir, agentDir);
+
+			expect(manager.getProjectTrustSetting()).toBe("ask");
+
+			manager.setProjectTrustSetting("always");
+			await manager.flush();
+
+			expect(manager.getProjectTrustSetting()).toBe("always");
+			expect(JSON.parse(readFileSync(join(agentDir, "settings.json"), "utf-8"))).toMatchObject({
+				projectTrust: "always",
+			});
+		});
+
+		it("should not let project settings control the default project trust setting", () => {
+			writeFileSync(join(agentDir, "settings.json"), JSON.stringify({ projectTrust: "always" }));
+			writeFileSync(join(projectDir, ".pi", "settings.json"), JSON.stringify({ projectTrust: "never" }));
+
+			const manager = SettingsManager.create(projectDir, agentDir);
+
+			expect(manager.getProjectTrustSetting()).toBe("always");
+		});
+
 		it("should skip project settings when project is not trusted", () => {
 			writeFileSync(join(agentDir, "settings.json"), JSON.stringify({ theme: "global" }));
 			writeFileSync(join(projectDir, ".pi", "settings.json"), JSON.stringify({ theme: "project" }));

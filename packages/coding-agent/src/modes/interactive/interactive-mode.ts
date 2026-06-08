@@ -3968,6 +3968,7 @@ export class InteractiveMode {
 					editorPaddingX: this.settingsManager.getEditorPaddingX(),
 					autocompleteMaxVisible: this.settingsManager.getAutocompleteMaxVisible(),
 					quietStartup: this.settingsManager.getQuietStartup(),
+					projectTrust: this.settingsManager.getProjectTrustSetting(),
 					clearOnShrink: this.settingsManager.getClearOnShrink(),
 					showTerminalProgress: this.settingsManager.getShowTerminalProgress(),
 					warnings: this.settingsManager.getWarnings(),
@@ -4057,6 +4058,9 @@ export class InteractiveMode {
 					},
 					onQuietStartupChange: (enabled) => {
 						this.settingsManager.setQuietStartup(enabled);
+					},
+					onProjectTrustChange: (setting) => {
+						this.settingsManager.setProjectTrustSetting(setting);
 					},
 					onDoubleEscapeActionChange: (action) => {
 						this.settingsManager.setDoubleEscapeAction(action);
@@ -4212,17 +4216,17 @@ export class InteractiveMode {
 	private showTrustSelector(): void {
 		const cwd = this.sessionManager.getCwd();
 		const trustStore = new ProjectTrustStore(this.runtimeHost.services.agentDir);
-		const savedDecision = trustStore.get(cwd);
+		const savedDecision = trustStore.getEntry(cwd);
 		this.showSelector((done) => {
 			const selector = new TrustSelectorComponent({
 				cwd,
 				savedDecision,
 				projectTrusted: this.settingsManager.isProjectTrusted(),
-				onSelect: (trusted) => {
-					trustStore.set(cwd, trusted);
+				onSelect: (selection) => {
+					trustStore.setMany(selection.updates);
 					done();
 					this.showStatus(
-						`Saved trust decision: ${trusted ? "trusted" : "untrusted"}. Restart pi for this to take effect.`,
+						`Saved trust decision: ${selection.trusted ? "trusted" : "untrusted"}. Restart pi for this to take effect.`,
 					);
 				},
 				onCancel: () => {

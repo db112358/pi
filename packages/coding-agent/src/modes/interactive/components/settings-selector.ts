@@ -12,7 +12,7 @@ import {
 	Text,
 } from "@earendil-works/pi-tui";
 import { formatHttpIdleTimeoutMs, HTTP_IDLE_TIMEOUT_CHOICES } from "../../../core/http-dispatcher.ts";
-import type { WarningSettings } from "../../../core/settings-manager.ts";
+import type { ProjectTrustSetting, WarningSettings } from "../../../core/settings-manager.ts";
 import { getSelectListTheme, getSettingsListTheme, theme } from "../theme/theme.ts";
 import { DynamicBorder } from "./dynamic-border.ts";
 import { keyDisplayText } from "./keybinding-hints.ts";
@@ -30,6 +30,21 @@ const THINKING_DESCRIPTIONS: Record<ThinkingLevel, string> = {
 	high: "Deep reasoning (~16k tokens)",
 	xhigh: "Maximum reasoning (~32k tokens)",
 };
+
+const PROJECT_TRUST_LABELS: Record<ProjectTrustSetting, string> = {
+	ask: "ask when unknown",
+	always: "always trust (override with -na)",
+	never: "never trust (override with -a)",
+};
+
+function projectTrustSettingFromLabel(label: string): ProjectTrustSetting {
+	for (const [setting, displayLabel] of Object.entries(PROJECT_TRUST_LABELS)) {
+		if (displayLabel === label) {
+			return setting as ProjectTrustSetting;
+		}
+	}
+	return "ask";
+}
 
 export interface SettingsConfig {
 	autoCompact: boolean;
@@ -55,6 +70,7 @@ export interface SettingsConfig {
 	editorPaddingX: number;
 	autocompleteMaxVisible: number;
 	quietStartup: boolean;
+	projectTrust: ProjectTrustSetting;
 	clearOnShrink: boolean;
 	showTerminalProgress: boolean;
 	warnings: WarningSettings;
@@ -83,6 +99,7 @@ export interface SettingsCallbacks {
 	onEditorPaddingXChange: (padding: number) => void;
 	onAutocompleteMaxVisibleChange: (maxVisible: number) => void;
 	onQuietStartupChange: (enabled: boolean) => void;
+	onProjectTrustChange: (setting: ProjectTrustSetting) => void;
 	onClearOnShrinkChange: (enabled: boolean) => void;
 	onShowTerminalProgressChange: (enabled: boolean) => void;
 	onWarningsChange: (warnings: WarningSettings) => void;
@@ -276,6 +293,13 @@ export class SettingsSelectorComponent extends Container {
 				description: "Send an anonymous version/update ping after changelog-detected updates",
 				currentValue: config.enableInstallTelemetry ? "true" : "false",
 				values: ["true", "false"],
+			},
+			{
+				id: "project-trust",
+				label: "Trust projects",
+				description: "Should unknown projects be trusted to load extensions and agent files?",
+				currentValue: PROJECT_TRUST_LABELS[config.projectTrust],
+				values: Object.values(PROJECT_TRUST_LABELS),
 			},
 			{
 				id: "double-escape-action",
@@ -511,6 +535,9 @@ export class SettingsSelectorComponent extends Container {
 						break;
 					case "install-telemetry":
 						callbacks.onEnableInstallTelemetryChange(newValue === "true");
+						break;
+					case "project-trust":
+						callbacks.onProjectTrustChange(projectTrustSettingFromLabel(newValue));
 						break;
 					case "double-escape-action":
 						callbacks.onDoubleEscapeActionChange(newValue as "fork" | "tree");

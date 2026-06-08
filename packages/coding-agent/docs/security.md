@@ -12,7 +12,7 @@ Pi considers a project to have trust inputs when it finds any of these from the 
 - `AGENTS.md` or `CLAUDE.md` in the current directory or an ancestor directory
 - `.agents/skills` in the current directory or an ancestor directory
 
-When an interactive session starts in a project with trust inputs and no saved decision, pi asks whether to trust the project. Saved decisions are stored per canonical working directory in `~/.pi/agent/trust.json`.
+When an interactive session starts in a project with trust inputs and no saved decision for the current directory or a parent directory, pi asks whether to trust the project. Saved decisions are stored by canonical directory in `~/.pi/agent/trust.json`; the closest decision on the current or parent path applies, so trusting `~/Development` also trusts `~/Development/pi` unless a narrower decision overrides it.
 
 Trusting a project allows pi to load project-local inputs, including:
 
@@ -24,7 +24,9 @@ Trusting a project allows pi to load project-local inputs, including:
 
 Declining trust skips those project-local inputs. Before trust is resolved, pi only loads user/global extensions and CLI `-e` extensions. User/global and CLI extensions can handle the `project_trust` event; the first extension that returns a yes/no decision owns the decision.
 
-Non-interactive modes (`-p`, `--mode json`, and `--mode rpc`) do not show a trust prompt. Without a saved trust decision, they ignore project-local inputs unless `--approve`/`-a` is passed. Use `--no-approve`/`-na` to ignore project-local inputs for one run even when the project is trusted.
+Non-interactive modes (`-p`, `--mode json`, and `--mode rpc`) do not show a trust prompt. Without an applicable saved trust decision, they ignore project-local inputs unless `--approve`/`-a` is passed. Use `--no-approve`/`-na` to ignore project-local inputs for one run even when the project is trusted.
+
+The global `projectTrust` setting answers whether unknown projects should be trusted to load extensions and agent files: `"ask"` asks when unknown, `"always"` always trusts (override with `-na`), and `"never"` never trusts (override with `-a`). Saved decisions, CLI approval flags, and extension `project_trust` handlers take precedence.
 
 ## No Built-in Sandbox
 

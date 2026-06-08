@@ -21,7 +21,10 @@ function createTempDir(): string {
 	return dir;
 }
 
-async function runCli(args: string[]): Promise<{ stdout: string; stderr: string; code: number | null }> {
+async function runCli(
+	args: string[],
+	globalSettings?: Record<string, unknown>,
+): Promise<{ stdout: string; stderr: string; code: number | null }> {
 	const tempRoot = createTempDir();
 	const agentDir = join(tempRoot, "agent");
 	const projectDir = join(tempRoot, "project");
@@ -52,6 +55,9 @@ async function runCli(args: string[]): Promise<{ stdout: string; stderr: string;
 		),
 		"utf-8",
 	);
+	if (globalSettings) {
+		writeFileSync(join(agentDir, "settings.json"), JSON.stringify(globalSettings, null, 2), "utf-8");
+	}
 
 	return await new Promise((resolvePromise, reject) => {
 		const child = spawn(process.execPath, [cliPath, ...args], {
@@ -107,6 +113,16 @@ describe("stdout cleanliness in non-interactive modes", () => {
 		expect(result.stdout).toBe("");
 		expect(result.stderr).not.toContain("changed 1 package in 471ms");
 		expect(result.stderr).not.toContain("found 0 vulnerabilities");
+		expect(result.stderr).toContain("Usage:");
+	});
+
+	it("uses projectTrust always as the default project trust decision", async () => {
+		const result = await runCli(["-p", "--help"], { projectTrust: "always" });
+
+		expect(result.code).toBe(0);
+		expect(result.stdout).toBe("");
+		expect(result.stderr).toContain("changed 1 package in 471ms");
+		expect(result.stderr).toContain("found 0 vulnerabilities");
 		expect(result.stderr).toContain("Usage:");
 	});
 });
