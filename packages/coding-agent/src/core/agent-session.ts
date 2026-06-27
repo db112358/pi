@@ -3034,6 +3034,7 @@ export class AgentSession {
 			getToolDefinition: (name) => this.getToolDefinition(name),
 			theme,
 			cwd: this.sessionManager.getCwd(),
+			toolIndent: this.settingsManager.getToolIndent(),
 		});
 
 		return await exportSessionToHtml(this.sessionManager, this.state, {

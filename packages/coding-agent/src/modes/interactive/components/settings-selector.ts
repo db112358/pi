@@ -13,7 +13,7 @@ import {
 	Text,
 } from "@earendil-works/pi-tui";
 import { formatHttpIdleTimeoutMs, HTTP_IDLE_TIMEOUT_CHOICES } from "../../../core/http-dispatcher.ts";
-import type { DefaultProjectTrust, WarningSettings } from "../../../core/settings-manager.ts";
+import { type DefaultProjectTrust, INDENT_VALUES, type WarningSettings } from "../../../core/settings-manager.ts";
 import {
 	getSelectListTheme,
 	getSettingsListTheme,
@@ -71,6 +71,8 @@ export interface SettingsConfig {
 	treeFilterMode: "default" | "no-tools" | "user-only" | "labeled-only" | "all";
 	showHardwareCursor: boolean;
 	editorPaddingX: number;
+	transcriptIndent: number;
+	toolIndent: number;
 	autocompleteMaxVisible: number;
 	quietStartup: boolean;
 	defaultProjectTrust: DefaultProjectTrust;
@@ -100,6 +102,8 @@ export interface SettingsCallbacks {
 	onTreeFilterModeChange: (mode: "default" | "no-tools" | "user-only" | "labeled-only" | "all") => void;
 	onShowHardwareCursorChange: (enabled: boolean) => void;
 	onEditorPaddingXChange: (padding: number) => void;
+	onTranscriptIndentChange: (indent: number) => void;
+	onToolIndentChange: (indent: number) => void;
 	onAutocompleteMaxVisibleChange: (maxVisible: number) => void;
 	onQuietStartupChange: (enabled: boolean) => void;
 	onDefaultProjectTrustChange: (defaultProjectTrust: DefaultProjectTrust) => void;
@@ -676,9 +680,29 @@ export class SettingsSelectorComponent extends Container {
 			values: ["0", "1", "2", "3"],
 		});
 
-		// Autocomplete max visible toggle (insert after editor-padding)
+		// Transcript indent toggle (insert after editor-padding)
 		const editorPaddingIndex = items.findIndex((item) => item.id === "editor-padding");
 		items.splice(editorPaddingIndex + 1, 0, {
+			id: "transcript-indent",
+			label: "Transcript indent",
+			description: "Horizontal padding for assistant transcript text (0-4)",
+			currentValue: String(config.transcriptIndent),
+			values: INDENT_VALUES.map((value) => String(value)),
+		});
+
+		// Tool indent toggle (insert after transcript-indent)
+		const transcriptIndentIndex = items.findIndex((item) => item.id === "transcript-indent");
+		items.splice(transcriptIndentIndex + 1, 0, {
+			id: "tool-indent",
+			label: "Tool indent",
+			description: "Horizontal padding for tool and message blocks (0-4)",
+			currentValue: String(config.toolIndent),
+			values: INDENT_VALUES.map((value) => String(value)),
+		});
+
+		// Autocomplete max visible toggle (insert after tool-indent)
+		const toolIndentIndex = items.findIndex((item) => item.id === "tool-indent");
+		items.splice(toolIndentIndex + 1, 0, {
 			id: "autocomplete-max-visible",
 			label: "Autocomplete max items",
 			description: "Max visible items in autocomplete dropdown (3-20)",
@@ -781,6 +805,12 @@ export class SettingsSelectorComponent extends Container {
 						break;
 					case "editor-padding":
 						callbacks.onEditorPaddingXChange(parseInt(newValue, 10));
+						break;
+					case "transcript-indent":
+						callbacks.onTranscriptIndentChange(parseInt(newValue, 10));
+						break;
+					case "tool-indent":
+						callbacks.onToolIndentChange(parseInt(newValue, 10));
 						break;
 					case "autocomplete-max-visible":
 						callbacks.onAutocompleteMaxVisibleChange(parseInt(newValue, 10));

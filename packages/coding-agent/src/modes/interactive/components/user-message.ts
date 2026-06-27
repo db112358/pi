@@ -11,9 +11,9 @@ const OSC133_ZONE_FINAL = "\x1b]133;C\x07";
 export class UserMessageComponent extends Container {
 	private contentBox: Box;
 
-	constructor(text: string, markdownTheme: MarkdownTheme = getMarkdownTheme()) {
+	constructor(text: string, markdownTheme: MarkdownTheme = getMarkdownTheme(), toolIndent = 1) {
 		super();
-		this.contentBox = new Box(1, 1, (content: string) => theme.bg("userMessageBg", content));
+		this.contentBox = new Box(toolIndent, 1, (content: string) => theme.bg("userMessageBg", content));
 		this.contentBox.addChild(
 			new Markdown(
 				text,

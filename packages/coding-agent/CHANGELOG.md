@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- Added `transcriptIndent` and `toolIndent` settings to configure interactive transcript and tool/message indentation.
+
 ### Fixed
 
 - Fixed `--session` and `SessionManager.open()` to reject non-empty invalid session files without overwriting them ([#6002](https://github.com/earendil-works/pi/issues/6002)).

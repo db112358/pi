@@ -62,6 +62,15 @@ export type DefaultProjectTrust = "ask" | "always" | "never";
 
 export type TransportSetting = Transport;
 
+export const INDENT_VALUES = [0, 1, 2, 3, 4] as const;
+
+function normalizeIndent(value: unknown): number {
+	if (typeof value !== "number" || !Number.isInteger(value)) {
+		return 1;
+	}
+	return INDENT_VALUES.includes(value as (typeof INDENT_VALUES)[number]) ? value : 1;
+}
+
 /**
  * Package source for npm/git packages.
  * - String form: load all resources from the package
@@ -114,6 +123,8 @@ export interface Settings {
 	editorPaddingX?: number; // Horizontal padding for input editor (default: 0)
 	autocompleteMaxVisible?: number; // Max visible items in autocomplete dropdown (default: 5)
 	showHardwareCursor?: boolean; // Show terminal cursor while still positioning it for IME
+	transcriptIndent?: number; // Horizontal padding for assistant transcript text (default: 1; allowed: 0-4)
+	toolIndent?: number; // Horizontal padding for tool and message blocks (default: 1; allowed: 0-4)
 	markdown?: MarkdownSettings;
 	warnings?: WarningSettings;
 	sessionDir?: string; // Custom session storage directory (same format as --session-dir CLI flag)
@@ -1166,6 +1177,26 @@ export class SettingsManager {
 	setEditorPaddingX(padding: number): void {
 		this.globalSettings.editorPaddingX = Math.max(0, Math.min(3, Math.floor(padding)));
 		this.markModified("editorPaddingX");
+		this.save();
+	}
+
+	getTranscriptIndent(): number {
+		return normalizeIndent(this.settings.transcriptIndent);
+	}
+
+	setTranscriptIndent(indent: number): void {
+		this.globalSettings.transcriptIndent = normalizeIndent(indent);
+		this.markModified("transcriptIndent");
+		this.save();
+	}
+
+	getToolIndent(): number {
+		return normalizeIndent(this.settings.toolIndent);
+	}
+
+	setToolIndent(indent: number): void {
+		this.globalSettings.toolIndent = normalizeIndent(indent);
+		this.markModified("toolIndent");
 		this.save();
 	}
 

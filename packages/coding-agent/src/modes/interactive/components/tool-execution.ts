@@ -8,6 +8,7 @@ import { theme } from "../theme/theme.ts";
 export interface ToolExecutionOptions {
 	showImages?: boolean;
 	imageWidthCells?: number;
+	toolIndent?: number;
 }
 
 export class ToolExecutionComponent extends Container {
@@ -25,6 +26,7 @@ export class ToolExecutionComponent extends Container {
 	private expanded = false;
 	private showImages: boolean;
 	private imageWidthCells: number;
+	private toolIndent: number;
 	private isPartial = true;
 	private toolDefinition?: ToolDefinition<any, any>;
 	private builtInToolDefinition?: ToolDefinition<any, any>;
@@ -57,6 +59,7 @@ export class ToolExecutionComponent extends Container {
 		this.builtInToolDefinition = createAllToolDefinitions(cwd)[toolName as ToolName];
 		this.showImages = options.showImages ?? true;
 		this.imageWidthCells = options.imageWidthCells ?? 60;
+		this.toolIndent = options.toolIndent ?? 1;
 		this.ui = ui;
 		this.cwd = cwd;
 
@@ -65,8 +68,8 @@ export class ToolExecutionComponent extends Container {
 		// Always create all shell variants. contentBox is used for default renderer-based composition.
 		// selfRenderContainer is used when the tool renders its own framing.
 		// contentText is reserved for generic fallback rendering when no tool definition exists.
-		this.contentBox = new Box(1, 1, (text: string) => theme.bg("toolPendingBg", text));
-		this.contentText = new Text("", 1, 1, (text: string) => theme.bg("toolPendingBg", text));
+		this.contentBox = new Box(this.toolIndent, 1, (text: string) => theme.bg("toolPendingBg", text));
+		this.contentText = new Text("", this.toolIndent, 1, (text: string) => theme.bg("toolPendingBg", text));
 		this.selfRenderContainer = new Container();
 
 		if (this.hasRendererDefinition()) {
@@ -128,6 +131,7 @@ export class ToolExecutionComponent extends Container {
 			isPartial: this.isPartial,
 			expanded: this.expanded,
 			showImages: this.showImages,
+			toolIndent: this.toolIndent,
 			isError: this.result?.isError ?? false,
 		};
 	}

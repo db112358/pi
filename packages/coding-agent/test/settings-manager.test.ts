@@ -354,6 +354,31 @@ describe("SettingsManager", () => {
 		});
 	});
 
+	it("should normalize and save transcript/tool indents", async () => {
+		const settingsPath = join(agentDir, "settings.json");
+		let manager = SettingsManager.create(projectDir, agentDir);
+		expect(manager.getTranscriptIndent()).toBe(1);
+		expect(manager.getToolIndent()).toBe(1);
+
+		writeFileSync(settingsPath, JSON.stringify({ transcriptIndent: 0, toolIndent: 4 }));
+		manager = SettingsManager.create(projectDir, agentDir);
+		expect(manager.getTranscriptIndent()).toBe(0);
+		expect(manager.getToolIndent()).toBe(4);
+
+		writeFileSync(settingsPath, JSON.stringify({ transcriptIndent: 5, toolIndent: "2" }));
+		manager = SettingsManager.create(projectDir, agentDir);
+		expect(manager.getTranscriptIndent()).toBe(1);
+		expect(manager.getToolIndent()).toBe(1);
+
+		manager.setTranscriptIndent(2);
+		manager.setToolIndent(3);
+		await manager.flush();
+
+		const savedSettings = JSON.parse(readFileSync(settingsPath, "utf-8"));
+		expect(savedSettings.transcriptIndent).toBe(2);
+		expect(savedSettings.toolIndent).toBe(3);
+	});
+
 	describe("shellCommandPrefix", () => {
 		it("should load shellCommandPrefix from settings", () => {
 			const settingsPath = join(agentDir, "settings.json");

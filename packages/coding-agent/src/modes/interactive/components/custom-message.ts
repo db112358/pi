@@ -21,6 +21,7 @@ export class CustomMessageComponent extends Container {
 		message: CustomMessage<unknown>,
 		customRenderer?: MessageRenderer,
 		markdownTheme: MarkdownTheme = getMarkdownTheme(),
+		toolIndent = 1,
 	) {
 		super();
 		this.message = message;
@@ -30,7 +31,7 @@ export class CustomMessageComponent extends Container {
 		this.addChild(new Spacer(1));
 
 		// Create box with purple background (used for default rendering)
-		this.box = new Box(1, 1, (t) => theme.bg("customMessageBg", t));
+		this.box = new Box(toolIndent, 1, (t) => theme.bg("customMessageBg", t));
 
 		this.rebuild();
 	}
