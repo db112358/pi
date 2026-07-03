@@ -31,7 +31,7 @@ import type {
 } from "../types.ts";
 import { AssistantMessageEventStream } from "../utils/event-stream.ts";
 import { headersToRecord } from "../utils/headers.ts";
-import { parseJsonWithRepair, parseStreamingJson } from "../utils/json-parse.ts";
+import { finalizeToolCallArguments, parseJsonWithRepair, parseStreamingJson } from "../utils/json-parse.ts";
 import { getProviderEnvValue } from "../utils/provider-env.ts";
 import { sanitizeSurrogates } from "../utils/sanitize-unicode.ts";
 
@@ -665,7 +665,9 @@ export const stream: StreamFunction<"anthropic-messages", AnthropicOptions> = (
 								partial: output,
 							});
 						} else if (block.type === "toolCall") {
-							block.arguments = parseStreamingJson(block.partialJson);
+							// Streaming previews may salvage partial JSON, but finalized
+							// arguments must strict-parse; otherwise the call is marked malformed.
+							finalizeToolCallArguments(block, block.partialJson);
 							// Finalize in-place and strip the scratch buffer so replay only
 							// carries parsed arguments.
 							delete (block as { partialJson?: string }).partialJson;
@@ -727,6 +729,11 @@ export const stream: StreamFunction<"anthropic-messages", AnthropicOptions> = (
 		} catch (error) {
 			for (const block of output.content) {
 				delete (block as { index?: number }).index;
+				// Blocks still holding a scratch buffer were cut off mid-stream;
+				// finalize them strictly so salvaged partial arguments never persist.
+				if (block.type === "toolCall") {
+					finalizeToolCallArguments(block, (block as { partialJson?: string }).partialJson);
+				}
 				// partialJson is only a streaming scratch buffer; never persist it.
 				delete (block as { partialJson?: string }).partialJson;
 			}

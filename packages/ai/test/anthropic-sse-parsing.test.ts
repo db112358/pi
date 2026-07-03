@@ -166,6 +166,98 @@ describe("Anthropic raw SSE parsing", () => {
 		});
 	});
 
+	it("marks tool calls with truncated JSON as malformed instead of salvaging", async () => {
+		const model = getModel("anthropic", "claude-haiku-4-5");
+		const context: Context = {
+			messages: [{ role: "user", content: "Use the edit tool.", timestamp: Date.now() }],
+			tools: [
+				{
+					name: "edit",
+					description: "Edit a file.",
+					parameters: Type.Object({
+						path: Type.String(),
+						text: Type.String(),
+					}),
+				},
+			],
+		};
+
+		// Tool JSON cut off by the output token limit: only a prefix arrived.
+		const truncatedJson = '{"path":"src/mime.ts","text":"const mimeTy';
+
+		const response = createSseResponse([
+			{
+				event: "message_start",
+				data: JSON.stringify({
+					type: "message_start",
+					message: {
+						id: "msg_test",
+						usage: {
+							input_tokens: 12,
+							output_tokens: 0,
+							cache_read_input_tokens: 0,
+							cache_creation_input_tokens: 0,
+						},
+					},
+				}),
+			},
+			{
+				event: "content_block_start",
+				data: JSON.stringify({
+					type: "content_block_start",
+					index: 0,
+					content_block: {
+						type: "tool_use",
+						id: "toolu_test",
+						name: "edit",
+						input: {},
+					},
+				}),
+			},
+			{
+				event: "content_block_delta",
+				data: JSON.stringify({
+					type: "content_block_delta",
+					index: 0,
+					delta: { type: "input_json_delta", partial_json: truncatedJson },
+				}),
+			},
+			{
+				event: "content_block_stop",
+				data: JSON.stringify({ type: "content_block_stop", index: 0 }),
+			},
+			{
+				event: "message_delta",
+				data: JSON.stringify({
+					type: "message_delta",
+					delta: { stop_reason: "max_tokens" },
+					usage: {
+						input_tokens: 12,
+						output_tokens: 5,
+						cache_read_input_tokens: 0,
+						cache_creation_input_tokens: 0,
+					},
+				}),
+			},
+			{
+				event: "message_stop",
+				data: JSON.stringify({ type: "message_stop" }),
+			},
+		]);
+
+		const stream = streamAnthropic(model, context, {
+			client: createFakeAnthropicClient(response),
+		});
+		const result = await stream.result();
+
+		expect(result.stopReason).toBe("length");
+		const toolCall = result.content.find((block): block is ToolCall => block.type === "toolCall");
+		expect(toolCall).toBeDefined();
+		expect(toolCall?.arguments).toEqual({});
+		expect(toolCall?.malformedArguments).toBe(truncatedJson);
+		expect("partialJson" in (toolCall ?? {})).toBe(false);
+	});
+
 	it("preserves refusal stop details from message_delta", async () => {
 		const model = getModel("anthropic", "claude-fable-5");
 		const context: Context = {

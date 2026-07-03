@@ -566,6 +566,16 @@ async function prepareToolCall(
 	config: AgentLoopConfig,
 	signal: AbortSignal | undefined,
 ): Promise<PreparedToolCall | ImmediateToolCallOutcome> {
+	if (toolCall.malformedArguments !== undefined) {
+		const lengthHint = assistantMessage.stopReason === "length" ? " (output token limit reached)" : "";
+		return {
+			kind: "immediate",
+			result: createErrorToolResult(
+				`Tool call "${toolCall.name}" was not executed: its arguments arrived as truncated or malformed JSON${lengthHint}. Re-issue the tool call with complete arguments.`,
+			),
+			isError: true,
+		};
+	}
 	const tool = currentContext.tools?.find((t) => t.name === toolCall.name);
 	if (!tool) {
 		return {

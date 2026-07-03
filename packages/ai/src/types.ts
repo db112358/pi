@@ -346,6 +346,11 @@ export interface ToolCall {
 	id: string;
 	name: string;
 	arguments: Record<string, any>;
+	/** Set when the streamed argument JSON did not parse as complete JSON (e.g. the
+	 *  stream was truncated by the output token limit). Contains the raw accumulated
+	 *  JSON. `arguments` is `{}` in that case; consumers must not execute the call.
+	 *  Diagnostic-only: never sent back to providers. */
+	malformedArguments?: string;
 	thoughtSignature?: string; // Google-specific: opaque signature for reusing thought context
 }
 

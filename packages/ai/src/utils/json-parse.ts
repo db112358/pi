@@ -1,4 +1,5 @@
 import { parse as partialParse } from "partial-json";
+import type { ToolCall } from "../types.ts";
 
 const VALID_JSON_ESCAPES = new Set(['"', "\\", "/", "b", "f", "n", "r", "t", "u"]);
 
@@ -120,5 +121,37 @@ export function parseStreamingJson<T = Record<string, unknown>>(partialJson: str
 				return {} as T;
 			}
 		}
+	}
+}
+
+/**
+ * Finalizes streamed tool-call arguments. Unlike `parseStreamingJson`, which is
+ * only meant for best-effort streaming previews, this requires the accumulated
+ * JSON to strict-parse as an object (allowing only lossless string-escape
+ * repair). On failure the arguments become `{}` and the raw JSON is preserved
+ * in `malformedArguments` so consumers can refuse to execute the call instead
+ * of running it with silently salvaged partial arguments.
+ *
+ * Passing `undefined` is a no-op: the scratch buffer was already consumed by a
+ * previous finalization (or the call never streamed argument JSON), so the
+ * parsed arguments are left untouched.
+ */
+export function finalizeToolCallArguments(toolCall: ToolCall, rawJson: string | undefined): void {
+	if (rawJson === undefined) {
+		return;
+	}
+	if (rawJson.trim() === "") {
+		toolCall.arguments = {};
+		return;
+	}
+	try {
+		const parsed = parseJsonWithRepair<unknown>(rawJson);
+		if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+			throw new Error("tool call arguments must be a JSON object");
+		}
+		toolCall.arguments = parsed as Record<string, any>;
+	} catch {
+		toolCall.arguments = {};
+		toolCall.malformedArguments = rawJson;
 	}
 }

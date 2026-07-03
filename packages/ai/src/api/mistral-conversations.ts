@@ -23,7 +23,7 @@ import type {
 } from "../types.ts";
 import { AssistantMessageEventStream } from "../utils/event-stream.ts";
 import { shortHash } from "../utils/hash.ts";
-import { parseStreamingJson } from "../utils/json-parse.ts";
+import { finalizeToolCallArguments, parseStreamingJson } from "../utils/json-parse.ts";
 import { sanitizeSurrogates } from "../utils/sanitize-unicode.ts";
 import { buildBaseOptions } from "./simple-options.ts";
 import { transformMessages } from "./transform-messages.ts";
@@ -91,6 +91,11 @@ export const stream: StreamFunction<"mistral-conversations", MistralOptions> = (
 			stream.end();
 		} catch (error) {
 			for (const block of output.content) {
+				// Blocks still holding a scratch buffer were cut off mid-stream;
+				// finalize them strictly so salvaged partial arguments never persist.
+				if (block.type === "toolCall") {
+					finalizeToolCallArguments(block, (block as { partialArgs?: string }).partialArgs);
+				}
 				// partialArgs is only a streaming scratch buffer; never persist it.
 				delete (block as { partialArgs?: string }).partialArgs;
 			}
@@ -469,7 +474,9 @@ async function consumeChatStream(
 		const block = output.content[index];
 		if (block.type !== "toolCall") continue;
 		const toolBlock = block as ToolCall & { partialArgs?: string };
-		toolBlock.arguments = parseStreamingJson<Record<string, unknown>>(toolBlock.partialArgs);
+		// Streaming previews may salvage partial JSON, but finalized
+		// arguments must strict-parse; otherwise the call is marked malformed.
+		finalizeToolCallArguments(toolBlock, toolBlock.partialArgs);
 		// Finalize in-place and strip the scratch buffer so replay only
 		// carries parsed arguments.
 		delete toolBlock.partialArgs;

@@ -9,6 +9,7 @@ import {
 	type AssistantMessageEvent,
 	type Context,
 	EventStream,
+	finalizeToolCallArguments,
 	type Model,
 	parseStreamingJson,
 	type SimpleStreamOptions,
@@ -336,6 +337,9 @@ function processProxyEvent(
 		case "toolcall_end": {
 			const content = partial.content[proxyEvent.contentIndex];
 			if (content?.type === "toolCall") {
+				// Streaming previews may salvage partial JSON, but finalized
+				// arguments must strict-parse; otherwise the call is marked malformed.
+				finalizeToolCallArguments(content, (content as { partialJson?: string }).partialJson);
 				delete (content as any).partialJson;
 				return {
 					type: "toolcall_end",

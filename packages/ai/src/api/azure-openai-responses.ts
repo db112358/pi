@@ -13,6 +13,7 @@ import type {
 import { formatProviderError, normalizeProviderError } from "../utils/error-body.ts";
 import { AssistantMessageEventStream } from "../utils/event-stream.ts";
 import { headersToRecord } from "../utils/headers.ts";
+import { finalizeToolCallArguments } from "../utils/json-parse.ts";
 import { getProviderEnvValue } from "../utils/provider-env.ts";
 import { clampOpenAIPromptCacheKey } from "./openai-prompt-cache.ts";
 import { convertResponsesMessages, convertResponsesTools, processResponsesStream } from "./openai-responses-shared.ts";
@@ -126,6 +127,11 @@ export const stream: StreamFunction<"azure-openai-responses", AzureOpenAIRespons
 		} catch (error) {
 			for (const block of output.content) {
 				delete (block as { index?: number }).index;
+				// Blocks still holding a scratch buffer were cut off mid-stream;
+				// finalize them strictly so salvaged partial arguments never persist.
+				if (block.type === "toolCall") {
+					finalizeToolCallArguments(block, (block as { partialJson?: string }).partialJson);
+				}
 				// partialJson is only a streaming scratch buffer; never persist it.
 				delete (block as { partialJson?: string }).partialJson;
 			}

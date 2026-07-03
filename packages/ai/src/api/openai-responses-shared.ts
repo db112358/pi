@@ -29,7 +29,7 @@ import type {
 } from "../types.ts";
 import type { AssistantMessageEventStream } from "../utils/event-stream.ts";
 import { shortHash } from "../utils/hash.ts";
-import { parseStreamingJson } from "../utils/json-parse.ts";
+import { finalizeToolCallArguments, parseStreamingJson } from "../utils/json-parse.ts";
 import { sanitizeSurrogates } from "../utils/sanitize-unicode.ts";
 import { transformMessages } from "./transform-messages.ts";
 
@@ -497,7 +497,9 @@ export async function processResponsesStream<TApi extends Api>(
 				});
 				outputSlots.delete(event.output_index);
 			} else if (item.type === "function_call" && slot?.type === "toolCall") {
-				slot.block.arguments = parseStreamingJson(item.arguments || slot.block.partialJson || "{}");
+				// Streaming previews may salvage partial JSON, but finalized
+				// arguments must strict-parse; otherwise the call is marked malformed.
+				finalizeToolCallArguments(slot.block, item.arguments || slot.block.partialJson);
 				// Finalize in-place and strip the scratch buffer so replay only
 				// carries parsed arguments.
 				delete (slot.block as { partialJson?: string }).partialJson;
@@ -524,6 +526,14 @@ export async function processResponsesStream<TApi extends Api>(
 					: "Unknown error (no error details in response)";
 			throw new Error(msg);
 		}
+	}
+	// Tool calls still open at stream end (e.g. cut off by max_output_tokens on
+	// an incomplete response) never received output_item.done; finalize them
+	// strictly so salvaged partial arguments never persist.
+	for (const slot of outputSlots.values()) {
+		if (slot.type !== "toolCall") continue;
+		finalizeToolCallArguments(slot.block, slot.block.partialJson);
+		delete (slot.block as { partialJson?: string }).partialJson;
 	}
 	if (!sawTerminalResponseEvent) {
 		throw new Error("OpenAI Responses stream ended before a terminal response event");

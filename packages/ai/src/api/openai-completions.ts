@@ -35,7 +35,7 @@ import type {
 import { formatProviderError, normalizeProviderError } from "../utils/error-body.ts";
 import { AssistantMessageEventStream } from "../utils/event-stream.ts";
 import { headersToRecord } from "../utils/headers.ts";
-import { parseStreamingJson } from "../utils/json-parse.ts";
+import { finalizeToolCallArguments, parseStreamingJson } from "../utils/json-parse.ts";
 import { getProviderEnvValue } from "../utils/provider-env.ts";
 import { sanitizeSurrogates } from "../utils/sanitize-unicode.ts";
 import { buildCopilotDynamicHeaders, hasCopilotVisionInput } from "./github-copilot-headers.ts";
@@ -232,7 +232,9 @@ export const stream: StreamFunction<"openai-completions", OpenAICompletionsOptio
 						partial: output,
 					});
 				} else if (block.type === "toolCall") {
-					block.arguments = parseStreamingJson(block.partialArgs);
+					// Streaming previews may salvage partial JSON, but finalized
+					// arguments must strict-parse; otherwise the call is marked malformed.
+					finalizeToolCallArguments(block, block.partialArgs);
 					// Finalize in-place and strip the scratch buffers so replay only
 					// carries parsed arguments.
 					delete block.partialArgs;
@@ -459,6 +461,11 @@ export const stream: StreamFunction<"openai-completions", OpenAICompletionsOptio
 		} catch (error) {
 			for (const block of output.content) {
 				delete (block as { index?: number }).index;
+				// Blocks still holding a scratch buffer were cut off mid-stream;
+				// finalize them strictly so salvaged partial arguments never persist.
+				if (block.type === "toolCall") {
+					finalizeToolCallArguments(block, (block as { partialArgs?: string }).partialArgs);
+				}
 				// Streaming scratch buffers are only used during parsing; never persist them.
 				delete (block as { partialArgs?: string }).partialArgs;
 				delete (block as { streamIndex?: number }).streamIndex;
