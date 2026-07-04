@@ -214,13 +214,25 @@ Filter what a package loads using the object form in settings:
 - `-path` force-excludes an exact path.
 - Filters layer on top of the manifest. They narrow down what is already allowed.
 
+Set `autoload` to `false` for a delta entry that starts empty and only applies explicit patterns. This is useful for project-local overrides of globally configured packages:
+
+```json
+{
+  "source": "../../../agent-stuff",
+  "autoload": false,
+  "extensions": ["+extensions/goal.ts", "-extensions/answer.ts"]
+}
+```
+
+With `autoload: false`, omitted resource types do not load anything from that entry, plain patterns and `+path` enable matches, and `!pattern` or `-path` disable matches. If the same package is also configured globally, the global package still loads and the project delta overrides only the listed resources.
+
 ## Enable and Disable Resources
 
-Use `pi config` to enable or disable extensions, skills, prompt templates, and themes from installed packages and local directories. Works for both global (`~/.pi/agent`) and project (`.pi/`) scopes.
+Use `pi config` to enable or disable extensions, skills, prompt templates, and themes from installed packages and local directories. `pi config` starts in global settings (`~/.pi/agent/settings.json`); press Tab to switch between global and project-local modes. Use `pi config -l` to start in project overrides (`.pi/settings.json`) with inherited global resources dimmed.
 
 ## Scope and Deduplication
 
-Packages can appear in both global and project settings. If the same package appears in both, the project entry wins. Identity is determined by:
+Packages can appear in both global and project settings. If the same package appears in both, the project entry wins unless the project entry has `autoload: false`, in which case it is applied as a delta over the global entry. Identity is determined by:
 
 - npm: package name
 - git: repository URL without ref

@@ -188,6 +188,7 @@ function resourcePrecedenceRank(m: PathMetadata): number {
 }
 
 interface PackageFilter {
+	autoload?: boolean;
 	extensions?: string[];
 	skills?: string[];
 	prompts?: string[];
@@ -770,6 +771,36 @@ function applyPatterns(allPaths: string[], patterns: string[], baseDir: string):
 	}
 
 	return new Set(result);
+}
+
+function applyAutoloadDisabledPatterns(allPaths: string[], patterns: string[], baseDir: string): Map<string, boolean> {
+	const includes: string[] = [];
+	const excludes: string[] = [];
+	const forceIncludes: string[] = [];
+	const forceExcludes: string[] = [];
+
+	for (const pattern of patterns) {
+		if (pattern.startsWith("+")) {
+			forceIncludes.push(pattern.slice(1));
+		} else if (pattern.startsWith("-")) {
+			forceExcludes.push(pattern.slice(1));
+		} else if (pattern.startsWith("!")) {
+			excludes.push(pattern.slice(1));
+		} else {
+			includes.push(pattern);
+		}
+	}
+
+	const result = new Map<string, boolean>();
+	for (const filePath of allPaths) {
+		let enabled: boolean | undefined;
+		if (matchesAnyPattern(filePath, includes, baseDir)) enabled = true;
+		if (matchesAnyPattern(filePath, excludes, baseDir)) enabled = false;
+		if (matchesAnyExactPattern(filePath, forceIncludes, baseDir)) enabled = true;
+		if (matchesAnyExactPattern(filePath, forceExcludes, baseDir)) enabled = false;
+		if (enabled !== undefined) result.set(filePath, enabled);
+	}
+	return result;
 }
 
 export class DefaultPackageManager implements PackageManager {
@@ -1655,29 +1686,35 @@ export class DefaultPackageManager implements PackageManager {
 
 	/**
 	 * Dedupe packages: if same package identity appears in both global and project,
-	 * keep only the project one (project wins).
+	 * keep only the project one (project wins). A project entry with autoload=false
+	 * is a delta over the global entry, so both are kept (delta first).
 	 */
 	private dedupePackages(
 		packages: Array<{ pkg: PackageSource; scope: SourceScope }>,
 	): Array<{ pkg: PackageSource; scope: SourceScope }> {
-		const seen = new Map<string, { pkg: PackageSource; scope: SourceScope }>();
-
+		const byIdentity = new Map<string, Array<{ pkg: PackageSource; scope: SourceScope }>>();
 		for (const entry of packages) {
 			const sourceStr = typeof entry.pkg === "string" ? entry.pkg : entry.pkg.source;
 			const identity = this.getPackageIdentity(sourceStr, entry.scope);
-
-			const existing = seen.get(identity);
-			if (!existing) {
-				seen.set(identity, entry);
-			} else if (entry.scope === "project" && existing.scope === "user") {
-				// Project wins over user
-				seen.set(identity, entry);
+			const group = byIdentity.get(identity);
+			if (group) {
+				group.push(entry);
+			} else {
+				byIdentity.set(identity, [entry]);
 			}
-			// If existing is project and new is global, keep existing (project)
-			// If both are same scope, keep first one
 		}
 
-		return Array.from(seen.values());
+		const result: Array<{ pkg: PackageSource; scope: SourceScope }> = [];
+		for (const group of byIdentity.values()) {
+			const project = group.find((entry) => entry.scope === "project");
+			const user = group.find((entry) => entry.scope === "user");
+			if (project && user && typeof project.pkg === "object" && project.pkg.autoload === false) {
+				result.push(project, user);
+			} else {
+				result.push(project ?? group[0]);
+			}
+		}
+		return result;
 	}
 
 	private parseNpmSpec(spec: string): { name: string; version?: string } {
@@ -2047,9 +2084,11 @@ export class DefaultPackageManager implements PackageManager {
 	): boolean {
 		if (filter) {
 			for (const resourceType of RESOURCE_TYPES) {
-				const patterns = filter[resourceType as keyof PackageFilter];
+				const patterns = filter[resourceType];
 				const target = this.getTargetMap(accumulator, resourceType);
-				if (patterns !== undefined) {
+				if (filter.autoload === false) {
+					this.applyPackageDeltaFilter(packageRoot, patterns ?? [], resourceType, target, metadata);
+				} else if (patterns !== undefined) {
 					this.applyPackageFilter(packageRoot, patterns, resourceType, target, metadata);
 				} else {
 					this.collectDefaultResources(packageRoot, resourceType, target, metadata);
@@ -2133,6 +2172,24 @@ export class DefaultPackageManager implements PackageManager {
 		for (const f of allFiles) {
 			const enabled = enabledByUser.has(f);
 			this.addResource(target, f, metadata, enabled);
+		}
+	}
+
+	private applyPackageDeltaFilter(
+		packageRoot: string,
+		userPatterns: string[],
+		resourceType: ResourceType,
+		target: Map<string, { metadata: PathMetadata; enabled: boolean }>,
+		metadata: PathMetadata,
+	): void {
+		if (userPatterns.length === 0) {
+			return;
+		}
+
+		const { allFiles } = this.collectManifestFiles(packageRoot, resourceType);
+		const enabledByUser = applyAutoloadDisabledPatterns(allFiles, userPatterns, packageRoot);
+		for (const [filePath, enabled] of enabledByUser) {
+			this.addResource(target, filePath, metadata, enabled);
 		}
 	}
 
