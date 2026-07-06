@@ -50,7 +50,7 @@ import type {
 import { normalizeProviderError } from "../utils/error-body.ts";
 import { AssistantMessageEventStream } from "../utils/event-stream.ts";
 import { providerHeadersToRecord } from "../utils/headers.ts";
-import { finalizeToolCallArguments, parseStreamingJson } from "../utils/json-parse.ts";
+import { parseStreamingJson } from "../utils/json-parse.ts";
 import { resolveHttpProxyUrlForTarget } from "../utils/node-http-proxy.ts";
 import { getProviderEnvValue } from "../utils/provider-env.ts";
 import { sanitizeSurrogates } from "../utils/sanitize-unicode.ts";
@@ -286,11 +286,6 @@ export const stream: StreamFunction<"bedrock-converse-stream", BedrockOptions> =
 		} catch (error) {
 			for (const block of output.content) {
 				delete (block as Block).index;
-				// Blocks still holding a scratch buffer were cut off mid-stream;
-				// finalize them strictly so salvaged partial arguments never persist.
-				if (block.type === "toolCall") {
-					finalizeToolCallArguments(block, (block as Block).partialJson);
-				}
 				// partialJson is only a streaming scratch buffer; never persist it.
 				delete (block as Block).partialJson;
 			}
@@ -550,9 +545,7 @@ function handleContentBlockStop(
 			stream.push({ type: "thinking_end", contentIndex: index, content: block.thinking, partial: output });
 			break;
 		case "toolCall":
-			// Streaming previews may salvage partial JSON, but finalized
-			// arguments must strict-parse; otherwise the call is marked malformed.
-			finalizeToolCallArguments(block, block.partialJson);
+			block.arguments = parseStreamingJson(block.partialJson);
 			// Finalize in-place and strip the scratch buffer so replay only
 			// carries parsed arguments.
 			delete (block as Block).partialJson;

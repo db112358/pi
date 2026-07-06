@@ -307,7 +307,7 @@ describe("agentLoop with AgentMessage", () => {
 		}
 	});
 
-	it("should not execute tool calls with malformed arguments", async () => {
+	it("should not execute tool calls from a length-truncated assistant message", async () => {
 		const toolSchema = Type.Object({ value: Type.String() });
 		const executed: string[] = [];
 		const tool: AgentTool<typeof toolSchema, { value: string }> = {
@@ -340,17 +340,11 @@ describe("agentLoop with AgentMessage", () => {
 			const stream = new MockAssistantStream();
 			queueMicrotask(() => {
 				if (callIndex === 0) {
-					// Tool call whose argument JSON arrived truncated (e.g. cut by max_tokens).
+					// Output hit the token limit mid tool call. The salvage parser can
+					// produce arguments that validate but are silently truncated, so
+					// nothing in this message may execute.
 					const message = createAssistantMessage(
-						[
-							{
-								type: "toolCall",
-								id: "tool-1",
-								name: "echo",
-								arguments: {},
-								malformedArguments: '{"value":"hel',
-							},
-						],
+						[{ type: "toolCall", id: "tool-1", name: "echo", arguments: { value: "hel" } }],
 						"length",
 					);
 					stream.push({ type: "done", reason: "length", message });
@@ -369,7 +363,7 @@ describe("agentLoop with AgentMessage", () => {
 			events.push(event);
 		}
 
-		// The tool must never execute with salvaged/partial arguments.
+		// The tool must never execute with potentially truncated arguments.
 		expect(executed).toEqual([]);
 
 		const toolEnd = events.find((e) => e.type === "tool_execution_end");
@@ -377,9 +371,13 @@ describe("agentLoop with AgentMessage", () => {
 		if (toolEnd?.type === "tool_execution_end") {
 			expect(toolEnd.isError).toBe(true);
 			const text = toolEnd.result.content.find((c: { type: string }) => c.type === "text");
-			expect(text && "text" in text ? text.text : "").toContain("truncated or malformed JSON");
-			expect(text && "text" in text ? text.text : "").toContain("output token limit reached");
+			expect(text && "text" in text ? text.text : "").toContain("output token limit");
 		}
+
+		// The loop continues so the model can re-issue the tool call.
+		expect(callIndex).toBe(2);
+		const messages = await stream.result();
+		expect(messages[messages.length - 1].role).toBe("assistant");
 	});
 
 	it("should execute mutated beforeToolCall args without revalidation", async () => {
