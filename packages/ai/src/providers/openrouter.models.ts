@@ -192,6 +192,7 @@ export const OPENROUTER_MODELS = {
 		baseUrl: "https://openrouter.ai/api/v1",
 		compat: {"thinkingFormat":"openrouter","cacheControlFormat":"anthropic"},
 		reasoning: true,
+		thinkingLevelMap: {"off":null,"xhigh":"xhigh","max":"max"},
 		input: ["text", "image"],
 		cost: {
 			input: 10,
@@ -759,9 +760,9 @@ export const OPENROUTER_MODELS = {
 		reasoning: true,
 		input: ["text"],
 		cost: {
-			input: 0.2288,
-			output: 0.3432,
-			cacheRead: 0.02288,
+			input: 0.2145,
+			output: 0.32175,
+			cacheRead: 0.02145,
 			cacheWrite: 0,
 		},
 		contextWindow: 131072,
@@ -4687,13 +4688,13 @@ export const OPENROUTER_MODELS = {
 		thinkingLevelMap: {"xhigh":"xhigh"},
 		input: ["text"],
 		cost: {
-			input: 0.532,
-			output: 1.672,
-			cacheRead: 0.0988,
+			input: 0.84,
+			output: 2.64,
+			cacheRead: 0.156,
 			cacheWrite: 0,
 		},
 		contextWindow: 1048576,
-		maxTokens: 131072,
+		maxTokens: 128000,
 	} satisfies Model<"openai-completions">,
 	"z-ai/glm-5v-turbo": {
 		id: "z-ai/glm-5v-turbo",
