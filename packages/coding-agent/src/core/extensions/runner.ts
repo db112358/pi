@@ -243,8 +243,6 @@ export type SwitchSessionHandler = (
 	options?: { withSession?: (ctx: ReplacedSessionContext) => Promise<void> },
 ) => Promise<{ cancelled: boolean }>;
 
-export type ReloadHandler = () => Promise<void>;
-
 export type ShutdownHandler = () => void;
 
 /**
@@ -376,7 +374,9 @@ export class ExtensionRunner {
 	private forkHandler: ForkHandler = async () => ({ cancelled: false });
 	private navigateTreeHandler: NavigateTreeHandler = async () => ({ cancelled: false });
 	private switchSessionHandler: SwitchSessionHandler = async () => ({ cancelled: false });
-	private reloadHandler: ReloadHandler = async () => {};
+	private requestReloadHandler: () => void = () => {};
+	private operationCompleteHandler: () => Promise<void> = async () => {};
+	private operationDepth = 0;
 	private shutdownHandler: ShutdownHandler = () => {};
 	private shortcutDiagnostics: ResourceDiagnostic[] = [];
 	private commandDiagnostics: ResourceDiagnostic[] = [];
@@ -432,6 +432,8 @@ export class ExtensionRunner {
 		this.getSignalFn = contextActions.getSignal;
 		this.abortFn = contextActions.abort;
 		this.hasPendingMessagesFn = contextActions.hasPendingMessages;
+		this.requestReloadHandler = contextActions.requestReload;
+		this.operationCompleteHandler = contextActions.onOperationComplete;
 		this.shutdownHandler = contextActions.shutdown;
 		this.getContextUsageFn = contextActions.getContextUsage;
 		this.compactFn = contextActions.compact;
@@ -507,7 +509,6 @@ export class ExtensionRunner {
 			this.forkHandler = actions.fork;
 			this.navigateTreeHandler = actions.navigateTree;
 			this.switchSessionHandler = actions.switchSession;
-			this.reloadHandler = actions.reload;
 			return;
 		}
 
@@ -516,7 +517,6 @@ export class ExtensionRunner {
 		this.forkHandler = async () => ({ cancelled: false });
 		this.navigateTreeHandler = async () => ({ cancelled: false });
 		this.switchSessionHandler = async () => ({ cancelled: false });
-		this.reloadHandler = async () => {};
 	}
 
 	setUIContext(uiContext?: ExtensionUIContext, mode: ExtensionMode = "print"): void {
@@ -581,6 +581,22 @@ export class ExtensionRunner {
 
 	getExtensionPaths(): string[] {
 		return this.extensions.map((e) => e.path);
+	}
+
+	hasActiveOperation(): boolean {
+		return this.operationDepth > 0;
+	}
+
+	async runExtensionOperation<T>(callback: () => Promise<T>): Promise<T> {
+		this.operationDepth++;
+		try {
+			return await callback();
+		} finally {
+			this.operationDepth--;
+			if (this.operationDepth === 0) {
+				await this.operationCompleteHandler();
+			}
+		}
 	}
 
 	/** Get all registered tools from all extensions (first registration per name wins). */
@@ -677,7 +693,7 @@ export class ExtensionRunner {
 	}
 
 	invalidate(
-		message = "This extension ctx is stale after session replacement or reload. Do not use a captured pi or command ctx after ctx.newSession(), ctx.fork(), ctx.switchSession(), or ctx.reload(). For newSession, fork, and switchSession, move post-replacement work into withSession and use the ctx passed to withSession. For reload, do not use the old ctx after await ctx.reload().",
+		message = "This extension ctx is stale after session replacement or reload. Do not use a captured pi or ctx after the runtime that created it has been replaced. For newSession, fork, and switchSession, move post-replacement work into withSession and use the ctx passed to withSession.",
 	): void {
 		if (!this.staleMessage) {
 			this.staleMessage = message;
@@ -867,6 +883,10 @@ export class ExtensionRunner {
 				runner.assertActive();
 				return runner.hasPendingMessagesFn();
 			},
+			requestReload: () => {
+				runner.assertActive();
+				runner.requestReloadHandler();
+			},
 			shutdown: () => {
 				runner.assertActive();
 				runner.shutdownHandler();
@@ -917,10 +937,6 @@ export class ExtensionRunner {
 		context.switchSession = (sessionPath, options) => {
 			this.assertActive();
 			return this.switchSessionHandler(sessionPath, options);
-		};
-		context.reload = () => {
-			this.assertActive();
-			return this.reloadHandler();
 		};
 		return context;
 	}
@@ -986,6 +1002,10 @@ export class ExtensionRunner {
 	}
 
 	async emit<TEvent extends RunnerEmitEvent>(event: TEvent): Promise<RunnerEmitResult<TEvent>> {
+		return this.runExtensionOperation(() => this._emit(event));
+	}
+
+	private async _emit<TEvent extends RunnerEmitEvent>(event: TEvent): Promise<RunnerEmitResult<TEvent>> {
 		const ctx = this.createContext();
 		let result: SessionBeforeEventResult | undefined;
 
@@ -1041,6 +1061,10 @@ export class ExtensionRunner {
 	}
 
 	async emitMessageEnd(event: MessageEndEvent): Promise<AgentMessage | undefined> {
+		return this.runExtensionOperation(() => this._emitMessageEnd(event));
+	}
+
+	private async _emitMessageEnd(event: MessageEndEvent): Promise<AgentMessage | undefined> {
 		const ctx = this.createContext();
 		let currentMessage = event.message;
 		let modified = false;
@@ -1080,6 +1104,10 @@ export class ExtensionRunner {
 	}
 
 	async emitToolResult(event: ToolResultEvent): Promise<ToolResultEventResult | undefined> {
+		return this.runExtensionOperation(() => this._emitToolResult(event));
+	}
+
+	private async _emitToolResult(event: ToolResultEvent): Promise<ToolResultEventResult | undefined> {
 		const ctx = this.createContext();
 		const currentEvent: ToolResultEvent = { ...event };
 		let modified = false;
@@ -1132,6 +1160,10 @@ export class ExtensionRunner {
 	}
 
 	async emitToolCall(event: ToolCallEvent): Promise<ToolCallEventResult | undefined> {
+		return this.runExtensionOperation(() => this._emitToolCall(event));
+	}
+
+	private async _emitToolCall(event: ToolCallEvent): Promise<ToolCallEventResult | undefined> {
 		const ctx = this.createContext();
 		let result: ToolCallEventResult | undefined;
 
@@ -1152,6 +1184,10 @@ export class ExtensionRunner {
 	}
 
 	async emitUserBash(event: UserBashEvent): Promise<UserBashEventResult | undefined> {
+		return this.runExtensionOperation(() => this._emitUserBash(event));
+	}
+
+	private async _emitUserBash(event: UserBashEvent): Promise<UserBashEventResult | undefined> {
 		const ctx = this.createContext();
 
 		for (const { ext, handlers } of snapshotEventHandlers(this.extensions, "user_bash")) {
@@ -1188,6 +1224,10 @@ export class ExtensionRunner {
 	 * handlers then see the full transcript and their output is used as returned.
 	 */
 	async emitContext(messages: AgentMessage[]): Promise<AgentMessage[]> {
+		return this.runExtensionOperation(() => this._emitContext(messages));
+	}
+
+	private async _emitContext(messages: AgentMessage[]): Promise<AgentMessage[]> {
 		const ctx = this.createContext();
 		let currentMessages = structuredClone(messages);
 
@@ -1251,6 +1291,10 @@ export class ExtensionRunner {
 	}
 
 	async emitBeforeProviderRequest(payload: unknown): Promise<unknown> {
+		return this.runExtensionOperation(() => this._emitBeforeProviderRequest(payload));
+	}
+
+	private async _emitBeforeProviderRequest(payload: unknown): Promise<unknown> {
 		const ctx = this.createContext();
 		let currentPayload = payload;
 
@@ -1282,6 +1326,10 @@ export class ExtensionRunner {
 	}
 
 	async emitBeforeProviderHeaders(headers: ProviderHeaders): Promise<ProviderHeaders> {
+		return this.runExtensionOperation(() => this._emitBeforeProviderHeaders(headers));
+	}
+
+	private async _emitBeforeProviderHeaders(headers: ProviderHeaders): Promise<ProviderHeaders> {
 		const ctx = this.createContext();
 
 		for (const { ext, handlers } of snapshotEventHandlers(this.extensions, "before_provider_headers")) {
@@ -1310,6 +1358,14 @@ export class ExtensionRunner {
 	}
 
 	async emitBeforeAgentStart(
+		prompt: string,
+		images: ImageContent[] | undefined,
+		systemPromptOptions: BuildSystemPromptOptions,
+	): Promise<BeforeAgentStartCombinedResult> {
+		return this.runExtensionOperation(() => this._emitBeforeAgentStart(prompt, images, systemPromptOptions));
+	}
+
+	private async _emitBeforeAgentStart(
 		prompt: string,
 		images: ImageContent[] | undefined,
 		systemPromptOptions: BuildSystemPromptOptions,
@@ -1371,6 +1427,17 @@ export class ExtensionRunner {
 		promptPaths: Array<{ path: string; extensionPath: string }>;
 		themePaths: Array<{ path: string; extensionPath: string }>;
 	}> {
+		return this.runExtensionOperation(() => this._emitResourcesDiscover(cwd, reason));
+	}
+
+	private async _emitResourcesDiscover(
+		cwd: string,
+		reason: ResourcesDiscoverEvent["reason"],
+	): Promise<{
+		skillPaths: Array<{ path: string; extensionPath: string }>;
+		promptPaths: Array<{ path: string; extensionPath: string }>;
+		themePaths: Array<{ path: string; extensionPath: string }>;
+	}> {
 		const ctx = this.createContext();
 		const skillPaths: Array<{ path: string; extensionPath: string }> = [];
 		const promptPaths: Array<{ path: string; extensionPath: string }> = [];
@@ -1410,6 +1477,15 @@ export class ExtensionRunner {
 
 	/** Emit input event. Transforms chain, "handled" short-circuits. */
 	async emitInput(
+		text: string,
+		images: ImageContent[] | undefined,
+		source: InputSource,
+		streamingBehavior?: "steer" | "followUp",
+	): Promise<InputEventResult> {
+		return this.runExtensionOperation(() => this._emitInput(text, images, source, streamingBehavior));
+	}
+
+	private async _emitInput(
 		text: string,
 		images: ImageContent[] | undefined,
 		source: InputSource,
