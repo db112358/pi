@@ -49,6 +49,13 @@ function sanitizeRadiusGatewayConfig(config: unknown): RadiusGatewayConfig | und
 	};
 }
 
+/** Validates a raw `/v1/config` payload from a Radius gateway. */
+export function parseRadiusGatewayConfig(payload: unknown, gateway: string): RadiusGatewayConfig {
+	const config = sanitizeRadiusGatewayConfig(payload);
+	if (!config) throw new Error(`Invalid Radius config from ${gateway}`);
+	return config;
+}
+
 export function normalizeRadiusGatewayUrl(value: string): string {
 	const withScheme = /^https?:\/\//iu.test(value) ? value : `https://${value}`;
 	return withScheme.replace(/\/+$/u, "");
@@ -90,7 +97,5 @@ export async function loadRadiusGatewayConfig(
 			`Could not load Radius config from ${gateway}: ${response.status}: ${truncateHttpBody(await response.text())}`,
 		);
 	}
-	const config = sanitizeRadiusGatewayConfig(await response.json());
-	if (!config) throw new Error(`Invalid Radius config from ${gateway}`);
-	return config;
+	return parseRadiusGatewayConfig(await response.json(), gateway);
 }

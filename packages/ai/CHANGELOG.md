@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Changed
+
+- Reorganized model catalog generation into declarative provider definitions and ordered rule packs under `scripts/model-generation/`, type-checked by `npm run check`. Generated model data is unchanged apart from a stable key order. `generate-models.ts` gained `--upstream-snapshot <dir>` to record and replay upstream catalogs and `--explain <provider>:<model>` to list the rules applied to a model.
+
 ## [0.86.1] - 2026-09-20
 
 ### Added

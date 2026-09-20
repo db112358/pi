@@ -33,10 +33,7 @@ interface OpenRouterModelRecord {
 	};
 }
 
-export function parseOpenRouterImageModels(
-	payload: unknown,
-	strict: boolean,
-): ImagesModel<"openrouter-images">[] {
+export function parseOpenRouterImageModels(payload: unknown, strict: boolean): ImagesModel<"openrouter-images">[] {
 	const data =
 		typeof payload === "object" && payload !== null
 			? (payload as { data?: OpenRouterModelRecord[] }).data

@@ -31,10 +31,12 @@ Create a provider file exporting:
 - Register the provider in `packages/ai/src/providers/register-builtins.ts` via lazy loader wrappers; do not statically import provider implementation modules there.
 - Add credential detection in `packages/ai/src/env-api-keys.ts`.
 
-## 4. Model Generation (`packages/ai/scripts/generate-models.ts`)
+## 4. Model Generation (`packages/ai/scripts/model-generation/`)
 
-- Add logic to fetch/parse models from the provider source.
-- Map to the standardized `Model` interface.
+- Add `providers/<provider>.ts` with a `defineProvider()` declaration: a `modelsDev()` source (or a custom source function), static `models` for entries upstream lacks, and `rules` for provider-specific corrections. Register it in `providers/index.ts`.
+- Cross-provider facts (thinking levels, tool capabilities) go into the matching pack under `rules/`.
+- Every `rule()` needs a `why`. Read `packages/ai/scripts/model-generation/README.md` for matcher, patch, and ordering semantics.
+- Verify with `node scripts/generate-models.ts --strict --json-only --json-output /tmp/catalog --explain <provider>:<model>` and `node scripts/diff-model-catalog.mjs <provider>` from the repo root.
 
 ## 5. Tests (`packages/ai/test/`)
 
