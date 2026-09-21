@@ -106,7 +106,7 @@ jobs:
           PI_SHA: ${{ github.event.pull_request.head.sha }}
           PI_PR_NUMBER: ${{ github.event.pull_request.number }}
         with:
-          github-token: ${{ secrets.PI_DEV_DISPATCH_TOKEN }}
+          github-token: ${{ secrets.PI_DEV_PAT }}
           script: |
             const sha = process.env.PI_SHA;
             const [headOwner, headRepo, ...extraParts] = process.env.PI_REPOSITORY.split('/');
