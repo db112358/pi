@@ -2,17 +2,24 @@ name: PR Gate
 
 on:
   pull_request_target:
-    types: [opened]
+    types: [opened, reopened, synchronize, ready_for_review]
+
+concurrency:
+  group: pr-gate-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
 
 jobs:
   check-contributor:
     runs-on: ubuntu-latest
+    outputs:
+      approved: ${{ steps.check.outputs.approved }}
     permissions:
       contents: read
       issues: write
       pull-requests: write
     steps:
       - name: Check if contributor is approved
+        id: check
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         with:
           script: |
@@ -22,9 +29,11 @@ jobs:
             const prAuthor = context.payload.pull_request.user.login;
             const defaultBranch = context.payload.repository.default_branch;
             const isBotAuthor = prAuthor.endsWith('[bot]');
+            core.setOutput('approved', 'false');
 
             if (TRUSTED_BOT_AUTHORS.has(prAuthor)) {
               console.log(`Skipping trusted bot: ${prAuthor}`);
+              core.setOutput('approved', 'true');
               return;
             }
 
@@ -101,6 +110,7 @@ jobs:
             const permission = await getPermission(prAuthor);
             if (!isBotAuthor && ['admin', 'maintain', 'write'].includes(permission)) {
               console.log(`${prAuthor} is a collaborator with ${permission} access`);
+              core.setOutput('approved', 'true');
               return;
             }
 
@@ -110,6 +120,7 @@ jobs:
 
             if (!isBotAuthor && capability === 'pr') {
               console.log(`${prAuthor} is approved for PRs`);
+              core.setOutput('approved', 'true');
               return;
             }
 
@@ -126,3 +137,41 @@ jobs:
             ].join('\n');
 
             await closePullRequest(message);
+
+  dispatch-pi-dev:
+    if: ${{ needs.check-contributor.outputs.approved == 'true' && !github.event.pull_request.draft }}
+    name: Dispatch pi.dev compatibility tests
+    needs: check-contributor
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - name: Dispatch tests
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          PI_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
+          PI_SHA: ${{ github.event.pull_request.head.sha }}
+          PI_PR_NUMBER: ${{ github.event.pull_request.number }}
+        with:
+          github-token: ${{ secrets.PI_DEV_PAT }}
+          script: |
+            const [owner, repo, ...extraParts] = process.env.PI_REPOSITORY.split('/');
+            const sha = process.env.PI_SHA;
+            const prNumber = Number(process.env.PI_PR_NUMBER);
+
+            if (!owner || !repo || extraParts.length > 0 || !/^[0-9a-f]{40}$/.test(sha)) {
+              throw new Error('Invalid pull request repository or commit SHA');
+            }
+            if (!Number.isInteger(prNumber)) {
+              throw new Error('Invalid pull request number');
+            }
+
+            await github.rest.repos.createDispatchEvent({
+              owner: 'earendil-works',
+              repo: 'pi.dev',
+              event_type: 'pi-model-catalog-compatibility',
+              client_payload: {
+                repository: `${owner}/${repo}`,
+                sha,
+                pr_number: prNumber,
+              },
+            });
