@@ -25,8 +25,9 @@ import type {
 	PrepareNextTurnContext,
 	ThinkingLevel,
 } from "@earendil-works/pi-agent-core";
-import { contentText, getCurrentSystemMessage, retryDelayMs } from "@earendil-works/pi-ai";
+import { contentText, getCurrentSystemMessage, retryDelayMs, uuidv7 } from "@earendil-works/pi-ai";
 import type {
+	AgentRequestIdentity,
 	AssistantMessage,
 	AuthResult,
 	ImageContent,
@@ -2356,6 +2357,16 @@ export class AgentSession {
 	// Compaction
 	// =========================================================================
 
+	private _createCompactionRequestIdentity(): AgentRequestIdentity {
+		return {
+			sessionId: this.sessionId,
+			threadId: this.sessionId,
+			turnId: uuidv7(),
+			requestKind: "compaction",
+			startedAt: Date.now(),
+		};
+	}
+
 	/** Generate Pi's built-in compaction summary for manual and automatic compaction. */
 	private async _runDefaultCompaction(
 		preparation: CompactionPreparation,
@@ -2366,6 +2377,7 @@ export class AgentSession {
 		signal: AbortSignal,
 		env: Record<string, string> | undefined,
 		reason: "manual" | "threshold" | "overflow",
+		requestIdentity: AgentRequestIdentity,
 	): Promise<CompactionResult> {
 		return compact(
 			preparation,
@@ -2380,6 +2392,7 @@ export class AgentSession {
 			this.settingsManager.getRetrySettings(),
 			this._summarizationRetryCallbacks({ source: "compaction", reason }),
 			undefined, // sessionId
+			requestIdentity,
 		);
 	}
 
@@ -2484,6 +2497,7 @@ export class AgentSession {
 					this._compactionAbortController.signal,
 					env,
 					"manual",
+					this._createCompactionRequestIdentity(),
 				);
 				summary = result.summary;
 				firstKeptEntryId = result.firstKeptEntryId;
@@ -2826,6 +2840,7 @@ export class AgentSession {
 					abortController.signal,
 					env,
 					reason,
+					this._createCompactionRequestIdentity(),
 				);
 				summary = compactResult.summary;
 				firstKeptEntryId = compactResult.firstKeptEntryId;
@@ -3687,6 +3702,7 @@ export class AgentSession {
 					streamFn: this.agent.streamFunction,
 					retry: this.settingsManager.getRetrySettings(),
 					callbacks: this._summarizationRetryCallbacks({ source: "branchSummary" }),
+					requestIdentity: this._createCompactionRequestIdentity(),
 				});
 				if (result.aborted) {
 					return { cancelled: true, aborted: true };
