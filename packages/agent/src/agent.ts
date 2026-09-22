@@ -1,5 +1,4 @@
 import {
-	type AgentRequestIdentity,
 	createInitialSystemMessage,
 	getCurrentSystemMessage,
 	getCurrentSystemPrompt,
@@ -14,6 +13,7 @@ import {
 	uuidv7,
 } from "@earendil-works/pi-ai";
 import { runAgentLoop, runAgentLoopContinue } from "./agent-loop.ts";
+import { createAgentRequestMetadata } from "./request-metadata.ts";
 import { getDefaultStreamFn } from "./stream-fn.ts";
 import type {
 	AfterToolCallContext,
@@ -217,7 +217,7 @@ export class Agent {
 	) => Promise<AgentLoopTurnUpdate | undefined> | AgentLoopTurnUpdate | undefined;
 	private activeRun?: ActiveRun;
 	private readonly attributionSessionId: string;
-	private activeRequestIdentity?: AgentRequestIdentity;
+	private activeRequestMetadata?: Record<string, unknown>;
 	/** Session identifier forwarded to providers for cache-aware backends. */
 	public sessionId?: string;
 	/** Optional per-level thinking token budgets forwarded to the stream function. */
@@ -367,7 +367,7 @@ export class Agent {
 		this._state.errorMessage = undefined;
 		this.clearFollowUpQueue();
 		this.clearSteeringQueue();
-		this.activeRequestIdentity = undefined;
+		this.activeRequestMetadata = undefined;
 	}
 
 	/** Start a new prompt from text, a single message, or a batch of messages. */
@@ -436,7 +436,7 @@ export class Agent {
 		messages: AgentMessage[],
 		options: { skipInitialSteeringPoll?: boolean } = {},
 	): Promise<void> {
-		this.activeRequestIdentity = this.createRequestIdentity();
+		this.activeRequestMetadata = createAgentRequestMetadata(this.attributionSessionId);
 		await this.runWithLifecycle(async (signal) => {
 			await runAgentLoop(
 				messages,
@@ -450,7 +450,7 @@ export class Agent {
 	}
 
 	private async runContinuation(): Promise<void> {
-		this.activeRequestIdentity ??= this.createRequestIdentity();
+		this.activeRequestMetadata ??= createAgentRequestMetadata(this.attributionSessionId);
 		await this.runWithLifecycle(async (signal) => {
 			await runAgentLoopContinue(
 				this.createContextSnapshot(),
@@ -473,11 +473,7 @@ export class Agent {
 		let skipInitialSteeringPoll = options.skipInitialSteeringPoll === true;
 		return {
 			model: this._state.model,
-			requestIdentity: this.activeRequestIdentity,
-			createRequestIdentity: () => {
-				this.activeRequestIdentity = this.createRequestIdentity();
-				return this.activeRequestIdentity;
-			},
+			metadata: this.activeRequestMetadata,
 			reasoning: this._state.thinkingLevel === "off" ? undefined : this._state.thinkingLevel,
 			sessionId: this.sessionId,
 			onPayload: this.onPayload,
@@ -510,17 +506,6 @@ export class Agent {
 				return this.steeringQueue.drain();
 			},
 			getFollowUpMessages: async () => this.followUpQueue.drain(),
-		};
-	}
-
-	/** Create an identity for a foreground turn or a provider-side compaction. */
-	createRequestIdentity(requestKind: AgentRequestIdentity["requestKind"] = "turn"): AgentRequestIdentity {
-		return {
-			sessionId: this.attributionSessionId,
-			threadId: this.attributionSessionId,
-			turnId: uuidv7(),
-			requestKind,
-			startedAt: Date.now(),
 		};
 	}
 
