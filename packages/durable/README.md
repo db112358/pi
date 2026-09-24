@@ -60,7 +60,7 @@ npm run bench:storage
 npm run bench:storage:memory
 ```
 
-Third-party implementations can run the same deterministic workloads from the testing entry without importing Vitest or Node APIs:
+The timing suite runs shared deterministic workloads against the built-in memory, JSONL, and SQLite adapters. Third-party adapters can import the same seeds and workload definitions from `@earendil-works/pi-durable/testing` and use their platform's timing runner:
 
 ```ts
 import {
@@ -70,21 +70,14 @@ import {
 	STORAGE_WRITE_BENCHMARKS,
 } from "@earendil-works/pi-durable/testing";
 
-const readStorage = await openCustomStorage();
 const dataset = await seedStorageBenchmark(readStorage);
-for (const benchmark of STORAGE_READ_BENCHMARKS) {
-	const actual = await benchmark.run(readStorage, dataset);
-	if (actual !== benchmark.expected(dataset)) throw new Error(`Invalid result: ${benchmark.name}`);
-	// Register benchmark.run(readStorage, dataset) with the local timing runner.
-}
+await STORAGE_READ_BENCHMARKS[0].run(readStorage, dataset);
 
-const writeStorage = await openCustomStorage();
-await seedStorageWriteBenchmark(writeStorage);
-// Use a fresh seeded storage instance for every measured write sample.
-await STORAGE_WRITE_BENCHMARKS[0].run(writeStorage);
+await seedStorageWriteBenchmark(freshWriteStorage);
+await STORAGE_WRITE_BENCHMARKS[0].run(freshWriteStorage);
 ```
 
-The package exports workload definitions rather than a timing runner so consumers can preserve their platform's lifecycle and isolation rules. Read scenarios reuse one seeded store. Every write sample requires a fresh store seeded with `seedStorageWriteBenchmark()`. The package's timing suite compares memory, JSONL, and SQLite across representative commits, indexed reads, pagination, fork traversal, document replay, historical reads, and persistent-backend reopen. Its footprint suite measures each backend in a separate process at 1k and 10k scales and reports heap, RSS, external memory, file counts, and on-disk JSONL/SQLite size. These synthetic workloads are baselines for regression analysis, not production capacity limits or CI pass/fail thresholds.
+Read scenarios reuse one seeded store; each write sample requires a fresh seeded store. The workloads cover representative commits, indexed reads, pagination, fork traversal, document replay, historical reads, and persistent-backend reopen. The footprint suite measures each built-in adapter in a separate process at 1k and 10k scales and reports heap, RSS, external memory, file counts, and on-disk JSONL/SQLite size. These synthetic workloads are baselines for regression analysis, not production capacity limits or CI pass/fail thresholds.
 
 The normative design and implementation sequence are in:
 
