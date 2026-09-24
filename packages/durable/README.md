@@ -60,7 +60,31 @@ npm run bench:storage
 npm run bench:storage:memory
 ```
 
-The timing suite compares memory, JSONL, and SQLite across representative commits, indexed reads, pagination, fork traversal, document replay, historical reads, and persistent-backend reopen. The footprint suite measures each backend in a separate process at 1k and 10k scales and reports heap, RSS, external memory, file counts, and on-disk JSONL/SQLite size. These deterministic synthetic workloads are baselines for regression analysis, not production capacity limits or CI pass/fail thresholds.
+Third-party implementations can run the same deterministic workloads from the testing entry without importing Vitest or Node APIs:
+
+```ts
+import {
+	seedStorageBenchmark,
+	seedStorageWriteBenchmark,
+	STORAGE_READ_BENCHMARKS,
+	STORAGE_WRITE_BENCHMARKS,
+} from "@earendil-works/pi-durable/testing";
+
+const readStorage = await openCustomStorage();
+const dataset = await seedStorageBenchmark(readStorage);
+for (const benchmark of STORAGE_READ_BENCHMARKS) {
+	const actual = await benchmark.run(readStorage, dataset);
+	if (actual !== benchmark.expected(dataset)) throw new Error(`Invalid result: ${benchmark.name}`);
+	// Register benchmark.run(readStorage, dataset) with the local timing runner.
+}
+
+const writeStorage = await openCustomStorage();
+await seedStorageWriteBenchmark(writeStorage);
+// Use a fresh seeded storage instance for every measured write sample.
+await STORAGE_WRITE_BENCHMARKS[0].run(writeStorage);
+```
+
+The package exports workload definitions rather than a timing runner so consumers can preserve their platform's lifecycle and isolation rules. Read scenarios reuse one seeded store. Every write sample requires a fresh store seeded with `seedStorageWriteBenchmark()`. The package's timing suite compares memory, JSONL, and SQLite across representative commits, indexed reads, pagination, fork traversal, document replay, historical reads, and persistent-backend reopen. Its footprint suite measures each backend in a separate process at 1k and 10k scales and reports heap, RSS, external memory, file counts, and on-disk JSONL/SQLite size. These synthetic workloads are baselines for regression analysis, not production capacity limits or CI pass/fail thresholds.
 
 The normative design and implementation sequence are in:
 
