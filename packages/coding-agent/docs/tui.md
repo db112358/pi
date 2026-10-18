@@ -11,6 +11,7 @@ Start with `ctx.ui` methods from an [extension](extensions.md#interact-with-the-
 | Select, confirm, input, or multi-line editor | `ctx.ui.select()`, `confirm()`, `input()`, or `editor()` |
 | Non-blocking feedback | `ctx.ui.notify()` or `setStatus()` |
 | Persistent content near the editor | `ctx.ui.setWidget()` |
+| Suggest the next input, dimmed after the cursor | `ctx.ui.setEditorGhost()` |
 | Replace the header, footer, or editor | The corresponding `ctx.ui` component factory |
 | Temporary interactive screen or overlay | `ctx.ui.custom()` |
 | Custom rendering for a tool or session entry | An extension renderer |

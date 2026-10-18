@@ -251,6 +251,10 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime): Promise<neve
 			return "";
 		},
 
+		setEditorGhost(_text: string | undefined): void {
+			// Ghost text is drawn by the TUI editor; RPC hosts own their own input
+		},
+
 		async editor(title: string, prefill?: string): Promise<string | undefined> {
 			const id = crypto.randomUUID();
 			return new Promise((resolve, reject) => {
