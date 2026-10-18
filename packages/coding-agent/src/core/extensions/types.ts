@@ -236,6 +236,14 @@ export interface ExtensionUIContext {
 	/** Get the current text from the core input editor. */
 	getEditorText(): string;
 
+	/**
+	 * Show dim suggested text after the cursor, or undefined to clear it. Right at the end of the
+	 * input accepts it as one undoable edit; any edit or submit clears it first.
+	 *
+	 * The text stays out of the buffer until it is accepted. No-op in RPC, JSON, and print modes.
+	 */
+	setEditorGhost(text: string | undefined): void;
+
 	/** Show a multi-line editor for text editing. */
 	editor(title: string, prefill?: string): Promise<string | undefined>;
 

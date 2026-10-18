@@ -20,6 +20,7 @@ import {
 	getWordSegmenter,
 	isWhitespaceChar,
 	sliceByColumn,
+	truncateToWidth,
 	visibleWidth,
 } from "../utils.ts";
 import { findWordBackward, findWordForward } from "../word-navigation.ts";
@@ -238,6 +239,8 @@ interface LayoutLine {
 export interface EditorTheme {
 	borderColor: (str: string) => string;
 	selectList: SelectListTheme;
+	/** Style for ghost text. Rendered unstyled when omitted. */
+	ghostText?: (str: string) => string;
 }
 
 export interface EditorOptions {
@@ -351,6 +354,9 @@ export class Editor implements Component, Focusable {
 	private killRing = new KillRing();
 	private lastAction: "kill" | "yank" | "type-word" | null = null;
 
+	// Suggested continuation drawn after the cursor; cleared once the text changes
+	private ghostText?: string;
+
 	// Character jump mode
 	private jumpMode: "forward" | "backward" | null = null;
 
@@ -441,6 +447,13 @@ export class Editor implements Component, Focusable {
 		return this.state.lines.length === 1 && this.state.lines[0] === "";
 	}
 
+	private isCursorAtEndOfText(): boolean {
+		return (
+			this.state.cursorLine === this.state.lines.length - 1 &&
+			this.state.cursorCol >= (this.state.lines[this.state.cursorLine] ?? "").length
+		);
+	}
+
 	private isOnFirstVisualLine(): boolean {
 		const visualLines = this.buildVisualLineMap(this.lastWidth);
 		const currentVisualLine = this.findCurrentVisualLine(visualLines);
@@ -455,6 +468,7 @@ export class Editor implements Component, Focusable {
 
 	private navigateHistory(direction: 1 | -1): void {
 		this.lastAction = null;
+		this.clearGhostText();
 		if (this.history.length === 0) return;
 
 		const newIndex = this.historyIndex - direction; // Up(-1) increases index, Down(1) decreases
@@ -492,6 +506,7 @@ export class Editor implements Component, Focusable {
 
 	/** Internal setText that doesn't reset history state - used by navigateHistory */
 	private setTextInternal(text: string, cursorPlacement: "start" | "end" = "end"): void {
+		this.clearGhostText();
 		const lines = text.split("\n");
 		this.state.lines = lines.length === 0 ? [""] : lines;
 		this.state.cursorLine = cursorPlacement === "start" ? 0 : this.state.lines.length - 1;
@@ -600,6 +615,15 @@ export class Editor implements Component, Focusable {
 					if (lineVisibleWidth > contentWidth && paddingX > 0) {
 						cursorInPadding = true;
 					}
+
+					// Clip the suggestion to the room left on the line.
+					const room = contentWidth - lineVisibleWidth;
+					const ghost = this.ghostText;
+					if (ghost !== undefined && this.isCursorAtEndOfText() && room > 0) {
+						const clipped = truncateToWidth(ghost, room, "…");
+						displayText += this.theme.ghostText?.(clipped) ?? clipped;
+						lineVisibleWidth += visibleWidth(clipped);
+					}
 				}
 			}
 
@@ -694,6 +718,15 @@ export class Editor implements Component, Focusable {
 	}
 
 	handleInput(data: string): void {
+		// A suggestion that the user typed past is stale, so any change to the text retires it.
+		const textBefore = this.ghostText === undefined ? undefined : this.getText();
+		this.handleInputInternal(data);
+		if (textBefore !== undefined && this.getText() !== textBefore) {
+			this.clearGhostText();
+		}
+	}
+
+	private handleInputInternal(data: string): void {
 		const kb = getKeybindings();
 
 		// Handle character jump mode (awaiting next character to jump to)
@@ -949,6 +982,11 @@ export class Editor implements Component, Focusable {
 			return;
 		}
 		if (kb.matches(data, "tui.editor.cursorRight")) {
+			// Right at the end of the text accepts the suggestion instead of doing nothing.
+			if (this.ghostText !== undefined && this.isCursorAtEndOfText()) {
+				this.acceptGhostText();
+				return;
+			}
 			this.moveCursor(0, 1);
 			return;
 		}
@@ -1141,6 +1179,30 @@ export class Editor implements Component, Focusable {
 	}
 
 	/**
+	 * Show a dim suggested continuation after the cursor. Right at the end of the text accepts it
+	 * as one undoable edit; any edit or submit retires it. Undefined clears it.
+	 * Only the first line is shown and accepted.
+	 */
+	setGhostText(text: string | undefined): void {
+		const first = text?.split("\n")[0]?.trim();
+		this.ghostText = first ? first : undefined;
+	}
+
+	getGhostText(): string | undefined {
+		return this.ghostText;
+	}
+
+	private clearGhostText(): void {
+		this.ghostText = undefined;
+	}
+
+	private acceptGhostText(): void {
+		const ghost = this.ghostText;
+		if (!ghost) return;
+		this.insertTextAtCursor(ghost);
+	}
+
+	/**
 	 * Normalize text for editor storage:
 	 * - Normalize line endings (\r\n and \r -> \n)
 	 * - Expand tabs to 4 spaces
@@ -1155,6 +1217,7 @@ export class Editor implements Component, Focusable {
 	 * Normalizes line endings and calls onChange once at the end.
 	 */
 	private insertTextAtCursorInternal(text: string): void {
+		this.clearGhostText();
 		if (!text) return;
 
 		// Normalize line endings and tabs
@@ -1363,6 +1426,7 @@ export class Editor implements Component, Focusable {
 
 	private submitValue(): void {
 		this.cancelAutocomplete();
+		this.clearGhostText();
 		const result = this.expandPasteMarkers(this.state.lines.join("\n")).trim();
 
 		this.state = { lines: [""], cursorLine: 0, cursorCol: 0 };
