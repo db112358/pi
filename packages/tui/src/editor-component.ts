@@ -69,6 +69,9 @@ export interface EditorComponent extends Component {
 	/** Set horizontal padding */
 	setPaddingX?(padding: number): void;
 
+	/** Show a suggested continuation after the cursor, or undefined to clear it */
+	setGhostText?(text: string | undefined): void;
+
 	/** Set max visible items in autocomplete dropdown */
 	setAutocompleteMaxVisible?(maxVisible: number): void;
 }
