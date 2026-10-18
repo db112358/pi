@@ -1097,6 +1097,7 @@ export function getEditorTheme(): EditorTheme {
 	return {
 		borderColor: (text: string) => theme.fg("borderMuted", text),
 		selectList: getSelectListTheme(),
+		ghostText: (text: string) => theme.fg("dim", text),
 	};
 }
 
