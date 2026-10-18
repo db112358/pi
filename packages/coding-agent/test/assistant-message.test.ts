@@ -92,6 +92,78 @@ describe("AssistantMessageComponent", () => {
 		expect(rendered).toContain("answer");
 	});
 
+	test("an empty hidden thinking label omits the block instead of collapsing it", () => {
+		initTheme("dark");
+
+		const component = new AssistantMessageComponent(
+			createAssistantMessage([
+				{ type: "thinking", thinking: "private reasoning" },
+				{ type: "text", text: "answer" },
+			]),
+			true,
+			undefined,
+			"",
+		);
+		const rendered = stripAnsi(component.render(80).join("\n"));
+
+		expect(rendered).not.toContain("Thinking...");
+		expect(rendered).not.toContain("private reasoning");
+		expect(rendered).toContain("answer");
+	});
+
+	test("an empty hidden thinking label omits thinking even when the hide setting is off", () => {
+		initTheme("dark");
+
+		const component = new AssistantMessageComponent(
+			createAssistantMessage([
+				{ type: "thinking", thinking: "private reasoning" },
+				{ type: "text", text: "answer" },
+			]),
+			false,
+			undefined,
+			"",
+		);
+		const rendered = stripAnsi(component.render(80).join("\n"));
+
+		expect(rendered).not.toContain("private reasoning");
+		expect(rendered).toContain("answer");
+	});
+
+	test("an empty hidden thinking label leaves no spacer for a thinking-only message", () => {
+		initTheme("dark");
+
+		const component = new AssistantMessageComponent(
+			createAssistantMessage([{ type: "thinking", thinking: "private reasoning" }]),
+			true,
+			undefined,
+			"",
+		);
+
+		expect(component.render(80)).toHaveLength(0);
+	});
+
+	test("an empty hidden thinking label leaves no blank line between the text around it", () => {
+		initTheme("dark");
+
+		const component = new AssistantMessageComponent(
+			createAssistantMessage([
+				{ type: "text", text: "first" },
+				{ type: "thinking", thinking: "private reasoning" },
+				{ type: "text", text: "second" },
+			]),
+			true,
+			undefined,
+			"",
+		);
+		const lines = stripAnsi(component.render(80).join("\n"))
+			.split("\n")
+			.map((line) => line.trim());
+
+		expect(lines.filter((line) => line === "first")).toHaveLength(1);
+		expect(lines.filter((line) => line === "second")).toHaveLength(1);
+		expect(lines.indexOf("second") - lines.indexOf("first")).toBe(1);
+	});
+
 	test("collapses individual thinking runs when clicked", () => {
 		initTheme("dark");
 		const component = new AssistantMessageComponent(
