@@ -181,7 +181,13 @@ export interface ExtensionUIContext {
 	 */
 	setWorkingIndicator(options?: WorkingIndicatorOptions): void;
 
-	/** Set the label shown for hidden thinking blocks. Call with no argument to restore default. */
+	/**
+	 * Set the label shown for hidden thinking blocks. Call with no argument to restore the default.
+	 *
+	 * An empty string omits thinking blocks entirely instead of collapsing them to a label, so an
+	 * extension that renders thinking itself can stop the core from drawing its rows.
+	 * `hideThinkingBlock` and click-to-expand are then ignored.
+	 */
 	setHiddenThinkingLabel(label?: string): void;
 
 	/** Set a widget to display above or below the editor. Accepts string array or component factory. */

@@ -88,6 +88,18 @@ export class AssistantMessageComponent extends Container {
 		return lines;
 	}
 
+	/** An empty label omits thinking instead of collapsing it to a line. */
+	private get omitsThinking(): boolean {
+		return this.hiddenThinkingLabel === "";
+	}
+
+	/** Whether a content part draws anything. */
+	private isRenderableContent(content: AssistantMessage["content"][number]): boolean {
+		if (content.type === "text") return Boolean(content.text.trim());
+		if (content.type === "thinking") return Boolean(content.thinking.trim()) && !this.omitsThinking;
+		return false;
+	}
+
 	updateContent(message: AssistantMessage, isStreaming = this.isStreaming): void {
 		this.lastMessage = message;
 		this.isStreaming = isStreaming;
@@ -95,9 +107,7 @@ export class AssistantMessageComponent extends Container {
 		// Clear content container
 		this.contentContainer.clear();
 
-		const hasVisibleContent = message.content.some(
-			(c) => (c.type === "text" && c.text.trim()) || (c.type === "thinking" && c.thinking.trim()),
-		);
+		const hasVisibleContent = message.content.some((c) => this.isRenderableContent(c));
 
 		if (hasVisibleContent) {
 			this.contentContainer.addChild(new Spacer(1));
@@ -116,6 +126,8 @@ export class AssistantMessageComponent extends Container {
 					}),
 				);
 			} else if (content.type === "thinking") {
+				if (this.omitsThinking) continue;
+
 				const thinkingBlocks: string[] = [];
 				for (; i < message.content.length; i++) {
 					const thinkingContent = message.content[i];
@@ -135,9 +147,7 @@ export class AssistantMessageComponent extends Container {
 
 				// Add spacing only when another visible assistant content block follows.
 				// This avoids a superfluous blank line before separately-rendered tool execution blocks.
-				const hasVisibleContentAfter = message.content
-					.slice(i + 1)
-					.some((c) => (c.type === "text" && c.text.trim()) || (c.type === "thinking" && c.thinking.trim()));
+				const hasVisibleContentAfter = message.content.slice(i + 1).some((c) => this.isRenderableContent(c));
 
 				const runIndex = thinkingRunIndex++;
 				const hidden = this.thinkingVisibilityOverrides.get(runIndex) ?? this.hideThinkingBlock;
