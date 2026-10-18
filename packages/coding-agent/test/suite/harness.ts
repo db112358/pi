@@ -92,6 +92,7 @@ export function createTestUiContext(overrides: Partial<ExtensionUIContext> = {})
 		pasteToEditor: () => {},
 		setEditorText: () => {},
 		getEditorText: () => "",
+		setEditorGhost: () => {},
 		editor: async () => undefined,
 		addAutocompleteProvider: () => {},
 		setEditorComponent: () => {},
