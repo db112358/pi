@@ -153,6 +153,24 @@ describe("AssistantMessageComponent", () => {
 		expect(withText.render(80).map((line) => stripAnsi(line).trim())).toEqual(["", "answer"]);
 	});
 
+	test("an empty hidden thinking label omits thinking even when the hide setting is off", () => {
+		initTheme("dark");
+
+		const component = new AssistantMessageComponent(
+			createAssistantMessage([
+				{ type: "thinking", thinking: "private reasoning" },
+				{ type: "text", text: "answer" },
+			]),
+			false,
+			undefined,
+			"",
+		);
+		const rendered = stripAnsi(component.render(80).join("\n"));
+
+		expect(rendered).not.toContain("private reasoning");
+		expect(rendered).toContain("answer");
+	});
+
 	test("keeps label row and spacing for hidden thinking with a label", () => {
 		initTheme("dark");
 
