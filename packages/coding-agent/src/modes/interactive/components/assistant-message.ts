@@ -120,6 +120,11 @@ export class AssistantMessageComponent extends Container {
 		return this.zoneLines.lines;
 	}
 
+	/** An empty label omits thinking instead of collapsing it to a line. */
+	private get omitsThinking(): boolean {
+		return this.hiddenThinkingLabel === "";
+	}
+
 	updateContent(message: AssistantMessage, isStreaming = this.isStreaming): void {
 		this.lastMessage = message;
 		this.isStreaming = isStreaming;
@@ -173,6 +178,8 @@ export class AssistantMessageComponent extends Container {
 					),
 				);
 			} else if (content.type === "thinking") {
+				if (this.omitsThinking) continue;
+
 				const thinkingBlocks: string[] = [];
 				for (; i < message.content.length; i++) {
 					const thinkingContent = message.content[i];
