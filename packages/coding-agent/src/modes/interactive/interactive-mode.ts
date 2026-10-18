@@ -2862,6 +2862,10 @@ export class InteractiveMode {
 				this.ui.requestRender();
 			},
 			getEditorText: () => this.editor.getExpandedText?.() ?? this.editor.getText(),
+			setEditorGhost: (text) => {
+				this.editor.setGhostText?.(text);
+				this.ui.requestRender();
+			},
 			editor: (title, prefill) => this.showExtensionEditor(title, prefill),
 			addAutocompleteProvider: (factory) => {
 				this.autocompleteProviderWrappers.push(factory);
