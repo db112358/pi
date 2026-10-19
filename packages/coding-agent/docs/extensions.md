@@ -3250,6 +3250,10 @@ Use `ctx.mode === "tui"` before TUI-specific features (`custom()`, component fac
 
 <a id="use-examples-as-the-implementation-reference"></a>
 
+## Find what is loaded
+
+The `extensions` tool lists the extensions loaded into a session and the source each one resolves to, so UI behaviour can be traced to the checkout that causes it. See [Inspect Loaded Extensions](inspect-extensions.md).
+
 ## Examples Reference
 
 All examples in [examples/extensions/](../examples/extensions/).
