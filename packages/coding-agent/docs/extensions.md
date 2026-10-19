@@ -381,6 +381,10 @@ Use `ctx.shutdown()` to request an orderly process shutdown.
 <a id="examples-reference"></a>
 <a id="use-examples-as-the-implementation-reference"></a>
 
+## Find what is loaded
+
+The `extensions` tool lists the extensions loaded into a session and the source each one resolves to, so UI behaviour can be traced to the checkout that causes it. See [Inspect Loaded Extensions](inspect-extensions.md).
+
 ## Examples and reference
 
 The checked [extension examples](../examples/extensions/) are the implementation reference. Start with the smallest example matching the behavior you need:
