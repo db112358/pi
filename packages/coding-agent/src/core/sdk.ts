@@ -29,6 +29,7 @@ import {
 	createBashTool,
 	createCodingTools,
 	createEditTool,
+	createExtensionsTool,
 	createFindTool,
 	createGrepTool,
 	createLsTool,
@@ -144,6 +145,7 @@ export {
 	createGrepTool,
 	createFindTool,
 	createLsTool,
+	createExtensionsTool,
 	createPowerShellTool,
 };
 

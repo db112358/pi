@@ -268,6 +268,7 @@ export {
 	// Tool factories (for custom cwd)
 	createCodingTools,
 	createEditTool,
+	createExtensionsTool,
 	createFindTool,
 	createGrepTool,
 	createLsTool,
