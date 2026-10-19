@@ -163,10 +163,8 @@ export function createExtensionsToolDefinition(
 			}
 
 			const lines = all.map((extension) => {
-				const source =
-					extension.resolvedPath !== extension.path ? shorten(extension.resolvedPath, home) : "this file";
 				const summary = footprint(extension);
-				return `- ${extension.name} -> ${source}${summary ? ` · ${summary}` : ""}`;
+				return `- ${extension.name} -> ${origin(extension, home)}${summary ? ` · ${summary}` : ""}`;
 			});
 			return {
 				content: [
