@@ -1,5 +1,10 @@
 # Changelog
 
+## [Unreleased]
+
+### New Features
+
+- **Find what a session has loaded**: the `extensions` tool lists every loaded extension with the source it resolves to — the extension's own checkout, not the working directory — and, for one named extension, the commands, shortcuts, flags, and tools it registers. Off by default; enable it with `+extensions` in `--tools` or `defaultTools`. See [Inspect loaded extensions](docs/inspect-extensions.md).
 ## [1.5.1] - 2026-11-09
 
 ### New Features
