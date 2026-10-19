@@ -147,6 +147,7 @@ The MCP resource tools (`list_mcp_resources`, `list_mcp_resource_templates`, `re
 | `grep` | Search file contents |
 | `find` | Find paths using glob patterns |
 | `ls` | List directory contents |
+| `extensions` | List the extensions loaded into the session, and the source each resolves to |
 
 Built-in extensions add two more tools. They are off by default; the MCP extension turns them on when an MCP server needs them (see [MCP](mcp.md#exposure)). To enable them yourself, name them in `--tools` or `defaultTools`.
 

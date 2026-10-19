@@ -14,6 +14,7 @@
  */
 
 import { readFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { basename, dirname } from "node:path";
 import {
 	type AfterToolCallContext,
@@ -146,7 +147,7 @@ import {
 	normalizeBuildSystemPromptOptions,
 } from "./system-prompt.ts";
 import { type BashOperations, createLocalBashOperations } from "./tools/bash.ts";
-import { createAllToolDefinitions } from "./tools/index.ts";
+import { createAllToolDefinitions, summarizeExtension } from "./tools/index.ts";
 import { createToolDefinitionFromAgentTool } from "./tools/tool-definition-wrapper.ts";
 import { addUsageToTotals, combineUsage, createUsageTotals } from "./usage-totals.ts";
 import {
@@ -3681,6 +3682,10 @@ export class AgentSession {
 			: createAllToolDefinitions(this._cwd, {
 					read: { autoResizeImages },
 					bash: { commandPrefix: shellCommandPrefix, shellPath },
+					extensions: {
+						list: () => this._resourceLoader.getExtensions().extensions.map(summarizeExtension),
+						homeDir: homedir(),
+					},
 				});
 
 		this._baseToolDefinitions = new Map(
