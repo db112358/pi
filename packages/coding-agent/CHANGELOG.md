@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### New Features
+
+- **Find what a session has loaded**: the `extensions` tool lists every loaded extension with the source it resolves to — the extension's own checkout, not the working directory — and, for one named extension, the commands, shortcuts, flags, and tools it registers. Off by default; enable it with `+extensions` in `--tools` or `defaultTools`. See [Inspect loaded extensions](docs/inspect-extensions.md).
+
 ## [1.5.2] - 2026-11-10
 
 ### New Features
@@ -14,7 +20,6 @@
 
 - Fixed `/import` of a session whose working directory no longer exists leaving a copy in the session directory, and continuing it leaving a second copy with the same ID (`s.jsonl` and `s-1.jsonl`); the failed copy is now removed ([#11975](https://github.com/earendil-works/pi/pull/11975) by [@petrroll](https://github.com/petrroll), fixes [#11060](https://github.com/earendil-works/pi/issues/11060))
 - Fixed Anthropic OAuth requests reporting an outdated Claude Code version
-
 ## [1.5.1] - 2026-11-09
 
 ### New Features
