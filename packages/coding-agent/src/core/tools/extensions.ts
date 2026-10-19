@@ -6,11 +6,12 @@
  * tool keeps that out of the prompt: the paths cost nothing until asked for.
  */
 
+import { realpathSync } from "node:fs";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import nodePath from "path";
 import { type Static, Type } from "typebox";
 import type { ToolDefinition } from "../extensions/types.ts";
-import type { SourceOrigin, SourceScope } from "../source-info.ts";
+import { isSyntheticPath, type SourceOrigin, type SourceScope } from "../source-info.ts";
 import { wrapToolDefinition } from "./tool-definition-wrapper.ts";
 
 const extensionsSchema = Type.Object({
@@ -64,6 +65,12 @@ function shorten(path: string, home: string | undefined): string {
 	return `~${path.slice(home.length)}`;
 }
 
+/** Where an extension lives. A symlinked extension resolves to its own checkout. */
+function origin(extension: LoadedExtensionSummary, home: string | undefined): string {
+	if (isSyntheticPath(extension.path)) return "built in";
+	return extension.resolvedPath === extension.path ? "this file" : shorten(extension.resolvedPath, home);
+}
+
 function formatCount(count: number, noun: string): string {
 	return `${count} ${noun}${count === 1 ? "" : "s"}`;
 }
@@ -84,7 +91,9 @@ function footprint(extension: LoadedExtensionSummary): string {
 function describe(extension: LoadedExtensionSummary, home: string | undefined): string {
 	const lines = [`${extension.name} (${extension.scope}, ${extension.origin})`];
 	lines.push(`  loaded from: ${shorten(extension.path, home)}`);
-	if (extension.resolvedPath !== extension.path) lines.push(`  source: ${shorten(extension.resolvedPath, home)}`);
+	if (!isSyntheticPath(extension.path) && extension.resolvedPath !== extension.path) {
+		lines.push(`  source: ${shorten(extension.resolvedPath, home)}`);
+	}
 	if (extension.hidden) lines.push("  hidden from the tool list");
 	const { commands, shortcuts, flags, tools } = extension;
 	if (commands.length === 0 && shortcuts.length === 0 && flags.length === 0 && tools.length === 0) {
@@ -176,6 +185,15 @@ export function createExtensionsTool(options?: ExtensionsToolOptions): AgentTool
 	return wrapToolDefinition(createExtensionsToolDefinition(options));
 }
 
+/** A symlink is the only clue to where an extension's source lives. */
+function resolveRealPath(path: string, fallback: string): string {
+	try {
+		return realpathSync(path);
+	} catch {
+		return fallback;
+	}
+}
+
 /** Project a loaded extension onto the fields the tool reports. */
 export function summarizeExtension(extension: {
 	path: string;
@@ -190,7 +208,9 @@ export function summarizeExtension(extension: {
 	return {
 		name: nodePath.basename(extension.path),
 		path: extension.path,
-		resolvedPath: extension.resolvedPath,
+		resolvedPath: isSyntheticPath(extension.path)
+			? extension.path
+			: resolveRealPath(extension.path, extension.resolvedPath),
 		scope: extension.sourceInfo.scope,
 		origin: extension.sourceInfo.origin,
 		hidden: extension.hidden ?? false,
