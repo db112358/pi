@@ -1,3 +1,6 @@
+import { mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
 	createExtensionsToolDefinition,
@@ -97,6 +100,39 @@ describe("extensions tool", () => {
 });
 
 describe("summarizeExtension", () => {
+	it("resolves a symlinked extension to the file it points at", () => {
+		const dir = mkdtempSync(join(tmpdir(), "pi-ext-summary-"));
+		const source = join(dir, "zen.ts");
+		writeFileSync(source, "export default function () {}");
+		const link = join(dir, "linked.ts");
+		symlinkSync(source, link);
+		const summary = summarizeExtension({
+			path: link,
+			resolvedPath: link,
+			sourceInfo: { scope: "user", origin: "top-level" },
+			commands: new Map(),
+			shortcuts: new Map(),
+			flags: new Map(),
+			tools: new Map(),
+		});
+		expect(summary.name).toBe("linked.ts");
+		expect(summary.resolvedPath).toBe(realpathSync(source));
+		rmSync(dir, { recursive: true, force: true });
+	});
+
+	it("leaves a built-in path alone", () => {
+		const summary = summarizeExtension({
+			path: "builtin:mcp",
+			resolvedPath: "builtin:mcp",
+			sourceInfo: { scope: "temporary", origin: "top-level" },
+			commands: new Map(),
+			shortcuts: new Map(),
+			flags: new Map(),
+			tools: new Map(),
+		});
+		expect(summary.resolvedPath).toBe("builtin:mcp");
+	});
+
 	it("takes the name from the loaded path, not the resolved one", () => {
 		const summary = summarizeExtension({
 			path: `${HOME}/.pi/agent/extensions/zen.ts`,
