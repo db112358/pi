@@ -92,11 +92,13 @@ export class EventStream<T, R = T> implements AsyncIterable<T> {
  * Event stream of one assistant response. It also times the response: the final message (`done` or `error` event, or
  * the result passed to `end()`) gets `durationMs`, measured with a monotonic clock from the stream's creation, unless
  * the message already has one or its `timestamp` predates the stream. A stream that forwards a response which started
- * elsewhere, such as a deferred result fetched later, therefore leaves it untimed.
+ * elsewhere, such as a deferred result fetched later, therefore leaves it untimed. The same clock stamps
+ * `firstTokenMs` when the first content delta passes through.
  */
 export class AssistantMessageEventStream extends EventStream<AssistantMessageEvent, AssistantMessage> {
 	readonly #startedAt = Date.now();
 	readonly #startedAtMonotonic = performance.now();
+	#firstTokenMonotonic: number | null = null;
 
 	constructor() {
 		super(
@@ -113,6 +115,9 @@ export class AssistantMessageEventStream extends EventStream<AssistantMessageEve
 	}
 
 	override push(event: AssistantMessageEvent): void {
+		if (this.#firstTokenMonotonic === null && isContentDelta(event)) {
+			this.#firstTokenMonotonic = performance.now();
+		}
 		if (event.type === "done") this.#time(event.message);
 		else if (event.type === "error") this.#time(event.error);
 		super.push(event);
@@ -126,7 +131,18 @@ export class AssistantMessageEventStream extends EventStream<AssistantMessageEve
 	#time(message: AssistantMessage): void {
 		if (this.done || message.durationMs !== undefined || message.timestamp < this.#startedAt) return;
 		message.durationMs = Math.max(0, Math.round(performance.now() - this.#startedAtMonotonic));
+		if (this.#firstTokenMonotonic !== null) {
+			message.firstTokenMs = Math.max(0, Math.round(this.#firstTokenMonotonic - this.#startedAtMonotonic));
+		}
 	}
+}
+
+/**
+ * Deltas carrying tokens the provider bills as output, thinking included: `usage.output` counts reasoning tokens, so a
+ * decode rate clocked from the first text delta alone would credit text time with them.
+ */
+function isContentDelta(event: AssistantMessageEvent): boolean {
+	return event.type === "text_delta" || event.type === "thinking_delta" || event.type === "toolcall_delta";
 }
 
 /** Factory function for AssistantMessageEventStream (for use in extensions) */
