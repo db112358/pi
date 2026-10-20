@@ -166,4 +166,47 @@ describe("AssistantMessageEventStream timing", () => {
 		stream.push({ type: "done", reason: "stop", message: late });
 		expect(late.durationMs).toBeUndefined();
 	});
+
+	it("stamps firstTokenMs at the first content delta, thinking and tool calls included", async () => {
+		for (const type of ["text_delta", "thinking_delta", "toolcall_delta"] as const) {
+			const stream = new AssistantMessageEventStream();
+			const partial = message(Date.now());
+			await sleep(10);
+			stream.push({ type, contentIndex: 0, delta: "x", partial });
+			await sleep(15);
+			const answer = message(Date.now());
+			stream.push({ type: "done", reason: "stop", message: answer });
+			const first = answer.firstTokenMs;
+			if (first === undefined) throw new Error(`${type}: firstTokenMs was not stamped`);
+			expect(first).toBeGreaterThanOrEqual(5);
+			expect(first).toBeLessThan(answer.durationMs!);
+		}
+	});
+
+	it("stamps firstTokenMs once, so a later delta cannot move it", async () => {
+		const stream = new AssistantMessageEventStream();
+		const partial = message(Date.now());
+		stream.push({ type: "thinking_delta", contentIndex: 0, delta: "a", partial });
+		const first = partial.firstTokenMs;
+		await sleep(15);
+		stream.push({ type: "text_delta", contentIndex: 1, delta: "b", partial });
+		const answer = message(Date.now());
+		stream.push({ type: "done", reason: "stop", message: answer });
+		const stamped = answer.firstTokenMs;
+		if (stamped === undefined) throw new Error("firstTokenMs was not stamped");
+		// The later delta did not move the stamp: it still points at the first one.
+		expect(stamped).toBeLessThan(10);
+		expect(stamped).toBeGreaterThanOrEqual(0);
+		expect(partial.firstTokenMs).toBe(first);
+	});
+
+	it("leaves firstTokenMs unset when no content streamed", async () => {
+		const stream = new AssistantMessageEventStream();
+		const partial = message(Date.now());
+		stream.push({ type: "text_start", contentIndex: 0, partial });
+		const answer = message(Date.now());
+		stream.push({ type: "done", reason: "stop", message: answer });
+		expect(answer.durationMs).toBeGreaterThanOrEqual(0);
+		expect(answer.firstTokenMs).toBeUndefined();
+	});
 });

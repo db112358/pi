@@ -606,6 +606,12 @@ export interface AssistantMessage {
 	 * for deferred results fetched later.
 	 */
 	durationMs?: number;
+	/**
+	 * Milliseconds from `timestamp` until the first content delta, on the same monotonic clock as `durationMs`.
+	 * `durationMs - firstTokenMs` is the streaming window, so `usage.output / (durationMs - firstTokenMs)` is the
+	 * decode rate, without time to first token or prefill.
+	 */
+	firstTokenMs?: number;
 }
 
 /** A tool call that another tool made while it ran, for example from a codemode script. */
