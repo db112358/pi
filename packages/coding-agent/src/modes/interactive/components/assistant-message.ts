@@ -8,8 +8,9 @@ import {
 	Spacer,
 	Text,
 } from "@earendil-works/pi-tui";
-import type { MarkdownTransformer } from "../../../core/extensions/types.ts";
+import type { MarkdownTransformer, ThinkingRowRenderer } from "../../../core/extensions/types.ts";
 import { getMarkdownTheme, theme } from "../theme/theme.ts";
+import { keyHint, keyText } from "./keybinding-hints.ts";
 import { createMarkdownTransform } from "./markdown-transform.ts";
 
 const OSC133_ZONE_START = "\x1b]133;A\x07";
@@ -40,6 +41,7 @@ export class AssistantMessageComponent extends Container {
 	private isStreaming = false;
 	private messageId?: string;
 	private timestamp?: string;
+	private thinkingRow?: ThinkingRowRenderer;
 	private thinkingVisibilityOverrides = new Map<number, boolean>();
 	private markdownSlots: MarkdownSlot[] = [];
 
@@ -50,6 +52,7 @@ export class AssistantMessageComponent extends Container {
 		hiddenThinkingLabel = "Thinking...",
 		outputPad = 1,
 		markdownTransformers: readonly MarkdownTransformer[] = [],
+		thinkingRow?: ThinkingRowRenderer,
 		messageId?: string,
 		timestamp?: string,
 	) {
@@ -60,6 +63,7 @@ export class AssistantMessageComponent extends Container {
 		this.hiddenThinkingLabel = hiddenThinkingLabel;
 		this.outputPad = outputPad;
 		this.markdownTransformers = markdownTransformers;
+		this.thinkingRow = thinkingRow;
 		this.messageId = messageId;
 		this.timestamp = timestamp;
 
@@ -89,6 +93,13 @@ export class AssistantMessageComponent extends Container {
 
 	setHiddenThinkingLabel(label: string): void {
 		this.hiddenThinkingLabel = label;
+		if (this.lastMessage) {
+			this.updateContent(this.lastMessage);
+		}
+	}
+
+	setThinkingRow(renderer?: ThinkingRowRenderer): void {
+		this.thinkingRow = renderer;
 		if (this.lastMessage) {
 			this.updateContent(this.lastMessage);
 		}
@@ -149,6 +160,7 @@ export class AssistantMessageComponent extends Container {
 
 		// Render content in order
 		let thinkingRunIndex = 0;
+		let thinkingRowDrawn = false;
 		for (let i = 0; i < message.content.length; i++) {
 			const content = message.content[i];
 			if (content.type === "text" && content.text.trim()) {
@@ -172,7 +184,23 @@ export class AssistantMessageComponent extends Container {
 					),
 				);
 			} else if (content.type === "thinking") {
-				if (this.omitsThinking) continue;
+				if (this.omitsThinking) {
+					// One row per message; the extension folds its thinking into one action.
+					if (!thinkingRowDrawn && content.thinking.trim()) {
+						thinkingRowDrawn = true;
+						const row = this.thinkingRow?.(
+							message,
+							{ expanded: !this.hideThinkingBlock, outputPad: this.outputPad, keyText, keyHint },
+							theme,
+						);
+						if (row) {
+							addVisibleChild(row);
+							// Gap only when visible content follows, as for a collapsed run.
+							needsSpacer = true;
+						}
+					}
+					continue;
+				}
 
 				const thinkingBlocks: string[] = [];
 				for (; i < message.content.length; i++) {
