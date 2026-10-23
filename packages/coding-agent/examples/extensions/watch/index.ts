@@ -188,8 +188,8 @@ class Watch {
 		return Date.now() - this.startedAt;
 	}
 
-	/** The retained output, trimmed to a caller's budget. */
-	context(maxLines: number, maxBytes: number): string {
+	/** A slice of the retained output, trimmed to a caller's budget. */
+	snapshot(maxLines: number, maxBytes: number): string {
 		return truncateTail(this.buffer, { maxLines, maxBytes }).content;
 	}
 
@@ -364,7 +364,7 @@ function escalationPrompt(watch: Watch, result: WatchResult, brief: string): str
 		"",
 		"## Recent output",
 		"```",
-		watch.context(ESCALATION_LINES, ESCALATION_BYTES).trimEnd(),
+		watch.snapshot(ESCALATION_LINES, ESCALATION_BYTES).trimEnd(),
 		"```",
 		"",
 		"Read the full log if the recent output is not enough. Answer directly, citing the lines you relied on.",
@@ -804,7 +804,7 @@ This is not a way to wait for completion. Done watches report themselves, so cal
 				head.push(`investigating agent: ${escalation.status}, session ${escalation.sessionId}`);
 				head.push(`resume it: pi -p --session ${escalation.sessionId} --session-dir ${escalation.sessionDir}`);
 			}
-			const tail = watch.context(params.tail ?? 20, 8 * 1024).trimEnd();
+			const tail = watch.snapshot(params.tail ?? 20, 8 * 1024).trimEnd();
 			if (tail) head.push("", "--- recent output ---", tail);
 			return {
 				content: [{ type: "text", text: head.join("\n") }],
