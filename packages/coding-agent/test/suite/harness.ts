@@ -84,6 +84,7 @@ export function createTestUiContext(overrides: Partial<ExtensionUIContext> = {})
 		setWorkingVisible: () => {},
 		setWorkingIndicator: () => {},
 		setHiddenThinkingLabel: () => {},
+		setThinkingRow: () => {},
 		setWidget: () => {},
 		setFooter: () => {},
 		setHeader: () => {},
