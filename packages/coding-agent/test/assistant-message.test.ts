@@ -1,5 +1,5 @@
 import type { AssistantMessage } from "@earendil-works/pi-ai";
-import type { TuiMouseEvent } from "@earendil-works/pi-tui";
+import { Text, type TuiMouseEvent } from "@earendil-works/pi-tui";
 import { describe, expect, test } from "vitest";
 import { AssistantMessageComponent } from "../src/modes/interactive/components/assistant-message.ts";
 import { UserMessageComponent } from "../src/modes/interactive/components/user-message.ts";
@@ -162,6 +162,145 @@ describe("AssistantMessageComponent", () => {
 		expect(lines.filter((line) => line === "first")).toHaveLength(1);
 		expect(lines.filter((line) => line === "second")).toHaveLength(1);
 		expect(lines.indexOf("second") - lines.indexOf("first")).toBe(1);
+	});
+
+	test("an empty hidden thinking label draws the extension's row once per message", () => {
+		initTheme("dark");
+		const calls: AssistantMessage[] = [];
+		const component = new AssistantMessageComponent(
+			createAssistantMessage([
+				{ type: "thinking", thinking: "first thought" },
+				{ type: "thinking", thinking: "second thought" },
+				{ type: "text", text: "answer" },
+			]),
+			true,
+			undefined,
+			"",
+			1,
+			[],
+			(message) => {
+				calls.push(message);
+				return new Text("custom thinking row", 0, 0);
+			},
+		);
+		const rendered = stripAnsi(component.render(80).join("\n"));
+
+		expect(calls).toHaveLength(1);
+		expect(rendered.match(/custom thinking row/g)).toHaveLength(1);
+		expect(rendered).toContain("answer");
+	});
+
+	test("a leading thinking row keeps the message's blank line above it", () => {
+		initTheme("dark");
+		const component = new AssistantMessageComponent(
+			createAssistantMessage([
+				{ type: "thinking", thinking: "private reasoning" },
+				{ type: "text", text: "answer" },
+			]),
+			true,
+			undefined,
+			"",
+			1,
+			[],
+			() => new Text("custom thinking row", 0, 0),
+		);
+		const lines = component.render(80).map((line) => stripAnsi(line).trimEnd());
+		const row = lines.findIndex((line) => line.includes("custom thinking row"));
+
+		expect(row).toBeGreaterThan(0);
+		expect(lines[row - 1]).toBe("");
+	});
+
+	test("a thinking row keeps a blank line before following text", () => {
+		initTheme("dark");
+		const component = new AssistantMessageComponent(
+			createAssistantMessage([
+				{ type: "thinking", thinking: "private reasoning" },
+				{ type: "text", text: "answer" },
+			]),
+			true,
+			undefined,
+			"",
+			1,
+			[],
+			() => new Text("custom thinking row", 0, 0),
+		);
+		const lines = component.render(80).map((line) => stripAnsi(line).trimEnd());
+		const row = lines.findIndex((line) => line.includes("custom thinking row"));
+		const answer = lines.findIndex((line) => line.includes("answer"));
+
+		expect(answer - row).toBe(2);
+	});
+
+	test("streaming updates keep one thinking row per message", () => {
+		initTheme("dark");
+		let calls = 0;
+		const component = new AssistantMessageComponent(undefined, true, undefined, "", 1, [], () => {
+			calls++;
+			return new Text("custom thinking row", 0, 0);
+		});
+
+		for (const thinking of ["first", "first second", "first second third"]) {
+			component.updateContent(createAssistantMessage([{ type: "thinking", thinking }]), true);
+		}
+
+		const rendered = stripAnsi(component.render(80).join("\n"));
+
+		expect(calls).toBe(3);
+		expect(rendered.match(/custom thinking row/g)).toHaveLength(1);
+	});
+
+	test("the thinking row renderer is not used while thinking collapses to a label", () => {
+		initTheme("dark");
+		let called = false;
+		const component = new AssistantMessageComponent(
+			createAssistantMessage([
+				{ type: "thinking", thinking: "private reasoning" },
+				{ type: "text", text: "answer" },
+			]),
+			true,
+			undefined,
+			undefined,
+			1,
+			[],
+			() => {
+				called = true;
+				return new Text("custom thinking row", 0, 0);
+			},
+		);
+		const rendered = stripAnsi(component.render(80).join("\n"));
+
+		expect(called).toBe(false);
+		expect(rendered).toContain("Thinking...");
+		expect(rendered).not.toContain("custom thinking row");
+	});
+
+	test("a renderer that returns nothing leaves the thinking omitted", () => {
+		initTheme("dark");
+
+		const component = new AssistantMessageComponent(
+			createAssistantMessage([{ type: "thinking", thinking: "private reasoning" }]),
+			true,
+			undefined,
+			"",
+			1,
+			[],
+			() => undefined,
+		);
+
+		expect(component.render(80)).toHaveLength(0);
+	});
+
+	test("setThinkingRow redraws a message that is already rendered", () => {
+		initTheme("dark");
+		const message = createAssistantMessage([{ type: "thinking", thinking: "private reasoning" }]);
+		const component = new AssistantMessageComponent(message, true, undefined, "");
+
+		expect(component.render(80)).toHaveLength(0);
+
+		component.setThinkingRow(() => new Text("late thinking row", 0, 0));
+
+		expect(stripAnsi(component.render(80).join("\n"))).toContain("late thinking row");
 	});
 
 	test("collapses individual thinking runs when clicked", () => {

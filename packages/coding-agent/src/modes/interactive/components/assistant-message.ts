@@ -1,6 +1,6 @@
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import { Container, Markdown, type MarkdownTheme, MouseRegion, Spacer, Text } from "@earendil-works/pi-tui";
-import type { MarkdownTransformer } from "../../../core/extensions/types.ts";
+import type { MarkdownTransformer, ThinkingRowRenderer } from "../../../core/extensions/types.ts";
 import { getMarkdownTheme, theme } from "../theme/theme.ts";
 import { createMarkdownTransform } from "./markdown-transform.ts";
 
@@ -21,6 +21,7 @@ export class AssistantMessageComponent extends Container {
 	private lastMessage?: AssistantMessage;
 	private hasToolCalls = false;
 	private isStreaming = false;
+	private thinkingRow?: ThinkingRowRenderer;
 	private thinkingVisibilityOverrides = new Map<number, boolean>();
 
 	constructor(
@@ -30,6 +31,7 @@ export class AssistantMessageComponent extends Container {
 		hiddenThinkingLabel = "Thinking...",
 		outputPad = 1,
 		markdownTransformers: readonly MarkdownTransformer[] = [],
+		thinkingRow?: ThinkingRowRenderer,
 	) {
 		super();
 
@@ -38,6 +40,7 @@ export class AssistantMessageComponent extends Container {
 		this.hiddenThinkingLabel = hiddenThinkingLabel;
 		this.outputPad = outputPad;
 		this.markdownTransformers = markdownTransformers;
+		this.thinkingRow = thinkingRow;
 
 		// Container for text/thinking content
 		this.contentContainer = new Container();
@@ -65,6 +68,13 @@ export class AssistantMessageComponent extends Container {
 
 	setHiddenThinkingLabel(label: string): void {
 		this.hiddenThinkingLabel = label;
+		if (this.lastMessage) {
+			this.updateContent(this.lastMessage);
+		}
+	}
+
+	setThinkingRow(renderer?: ThinkingRowRenderer): void {
+		this.thinkingRow = renderer;
 		if (this.lastMessage) {
 			this.updateContent(this.lastMessage);
 		}
@@ -107,14 +117,9 @@ export class AssistantMessageComponent extends Container {
 		// Clear content container
 		this.contentContainer.clear();
 
-		const hasVisibleContent = message.content.some((c) => this.isRenderableContent(c));
-
-		if (hasVisibleContent) {
-			this.contentContainer.addChild(new Spacer(1));
-		}
-
 		// Render content in order
 		let thinkingRunIndex = 0;
+		let thinkingRowDrawn = false;
 		for (let i = 0; i < message.content.length; i++) {
 			const content = message.content[i];
 			if (content.type === "text" && content.text.trim()) {
@@ -126,7 +131,25 @@ export class AssistantMessageComponent extends Container {
 					}),
 				);
 			} else if (content.type === "thinking") {
-				if (this.omitsThinking) continue;
+				if (this.omitsThinking) {
+					// One row per message; the extension folds its thinking into one action.
+					if (!thinkingRowDrawn && content.thinking.trim()) {
+						thinkingRowDrawn = true;
+						const row = this.thinkingRow?.(
+							message,
+							{ expanded: !this.hideThinkingBlock, outputPad: this.outputPad },
+							theme,
+						);
+						if (row) {
+							this.contentContainer.addChild(row);
+							// Gap only when visible content follows, as for a collapsed run.
+							if (message.content.slice(i + 1).some((c) => this.isRenderableContent(c))) {
+								this.contentContainer.addChild(new Spacer(1));
+							}
+						}
+					}
+					continue;
+				}
 
 				const thinkingBlocks: string[] = [];
 				for (; i < message.content.length; i++) {
@@ -182,6 +205,11 @@ export class AssistantMessageComponent extends Container {
 					this.contentContainer.addChild(new Spacer(1));
 				}
 			}
+		}
+
+		// Blank line above, including when only a thinking row drew.
+		if (this.contentContainer.children.length > 0) {
+			this.contentContainer.children.unshift(new Spacer(1));
 		}
 
 		// Check if incomplete/failed - show after partial content.

@@ -20,6 +20,7 @@ import type {
 import type {
 	AnyModel,
 	Api,
+	AssistantMessage,
 	AssistantMessageEvent,
 	AssistantMessageEventStream,
 	ClassifierApi,
@@ -189,6 +190,12 @@ export interface ExtensionUIContext {
 	 * `hideThinkingBlock` and click-to-expand are then ignored.
 	 */
 	setHiddenThinkingLabel(label?: string): void;
+
+	/**
+	 * Draw an omitted hidden thinking run. Only used with an empty hidden thinking label, which
+	 * otherwise leaves the run out. Called once per message; return undefined to draw nothing.
+	 */
+	setThinkingRow(renderer?: ThinkingRowRenderer): void;
 
 	/** Set a widget to display above or below the editor. Accepts string array or component factory. */
 	setWidget(key: string, content: string[] | undefined, options?: ExtensionWidgetOptions): void;
@@ -1566,6 +1573,13 @@ export interface EntryRenderOptions {
 
 export type MessageRenderer<T = unknown> = (
 	message: CustomMessage<T>,
+	options: MessageRenderOptions,
+	theme: Theme,
+) => Component | undefined;
+
+/** Draws the row that replaces a hidden thinking run omitted with an empty label. */
+export type ThinkingRowRenderer = (
+	message: AssistantMessage,
 	options: MessageRenderOptions,
 	theme: Theme,
 ) => Component | undefined;
