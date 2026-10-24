@@ -71,7 +71,13 @@ export class CustomMessageComponent extends Container {
 			try {
 				const component = this.customRenderer(
 					this.message,
-					{ expanded: this._expanded, outputPad: this.outputPad, keyText, keyHint },
+					{
+						expanded: this._expanded,
+						outputPad: this.outputPad,
+						keyText,
+						keyHint,
+						invalidate: () => this.invalidate(),
+					},
 					theme,
 				);
 				if (component) {
