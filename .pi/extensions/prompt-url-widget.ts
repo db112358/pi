@@ -39,7 +39,8 @@ type AdvisoryRef = {
 	url: string;
 };
 
-function extractPromptMatch(prompt: string): PromptMatch | undefined {
+function extractPromptMatch(prompt: string | undefined): PromptMatch | undefined {
+	if (typeof prompt !== "string") return undefined;
 	const prMatch = prompt.match(PR_PROMPT_PATTERN);
 	if (prMatch?.[1]) {
 		return { kind: "pr", target: prMatch[1].trim() };
@@ -218,6 +219,7 @@ export default function promptUrlWidgetExtension(pi: ExtensionAPI) {
 	};
 
 	pi.on("before_agent_start", async (event, ctx) => {
+		// Only a user prompt carries one; a custom message has no URL to show.
 		if (!ctx.hasUI || event.messageType !== "user") return;
 		const match = extractPromptMatch(event.prompt);
 		if (!match) {
