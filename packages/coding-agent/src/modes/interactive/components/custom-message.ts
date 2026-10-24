@@ -70,7 +70,7 @@ export class CustomMessageComponent extends Container {
 			try {
 				const component = this.customRenderer(
 					this.message,
-					{ expanded: this._expanded, outputPad: this.outputPad },
+					{ expanded: this._expanded, outputPad: this.outputPad, invalidate: () => this.invalidate() },
 					theme,
 				);
 				if (component) {
