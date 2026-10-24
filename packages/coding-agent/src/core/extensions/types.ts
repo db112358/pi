@@ -1578,6 +1578,8 @@ export interface MessageRenderOptions extends KeybindingHints {
 	expanded: boolean;
 	/** Horizontal padding configured by the outputPad setting. */
 	outputPad: number;
+	/** Redraw this message, for a renderer whose own state changed (a click). */
+	invalidate?: () => void;
 }
 
 /**
