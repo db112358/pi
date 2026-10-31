@@ -2092,6 +2092,16 @@ validation and copies the v2 kernel added around Delta.
 - **A CSP nonce per response (owner, 2026-10-31: "csp ok"; Fable's recheck):** the HTTP component makes a fresh script
   nonce for every response (`request.nonce`), not one per server: a nonce read from one page cannot be reused by an
   injected script elsewhere.
+- **Settings are arguments, extensions are registries (owner, 2026-10-31: "making that config a registry is dumb; it's a
+  general problem for all host-lifetime natives that need initialization at host startup"; "k"; supersedes the
+  `HttpConfig` registry of "The HTTP server is a native object"):** what the app decides once at startup (a port, frame
+  limits, a timeout, a data directory, which implementation to use) is an argument to the component's facet, which base
+  code constructs; the facet and its host-lifetime objects close over it; changing it is a restart; no plugin can
+  touch it. What plugins add while the app runs (routes, authenticators, tools, panels, more indexers) is a registry.
+  HTTP: `createHttp(host, { listen, links, closeTimeout, onError }, ctx)`; `Http` and `Authenticators` stay registries.
+  The same for the harness (its store and defaults as arguments; models, environments, extensions as registries) and
+  the app kit's components (a session index takes its indexer as an argument, and may also follow a registry of
+  indexers if plugins should supply them).
 - **A plugin's npm dependencies are bundled; external only by opt-in (owner, 2026-10-29: "explicit opt in + (a)"):**
   a plugin's `dependencies` are installed into its own `node_modules` (`npm install --ignore-scripts`) and bundled into
   each facet that imports them (host packages, its `peerDependencies`, stay external and are passed in). On Node a
