@@ -2102,6 +2102,13 @@ validation and copies the v2 kernel added around Delta.
   The same for the harness (its store and defaults as arguments; models, environments, extensions as registries) and
   the app kit's components (a session index takes its indexer as an argument, and may also follow a registry of
   indexers if plugins should supply them).
+- **API versions in the import path (owner, 2026-10-31: "this sounds about right"; "must be declared by the plugin in
+  code, we do not want to dig around package.json files anymore"):** the app's base code is internal except its API
+  modules, which it exposes as host packages with a version in the path (`@acme/app/v3`; Chord's
+  `@earendil-works/chord/next/v2`); the app lists the versions it still provides (an older one as the same module, or a
+  thin layer); an import of an unlisted version is a build error naming the available ones. No `package.json` field
+  and no npm ranges for this. Contracts and registry tokens inside an API keep their own versions. The rest of the
+  plugin model is a proposal (`docs/next/plugin-model/`).
 - **A plugin's npm dependencies are bundled; external only by opt-in (owner, 2026-10-29: "explicit opt in + (a)"):**
   a plugin's `dependencies` are installed into its own `node_modules` (`npm install --ignore-scripts`) and bundled into
   each facet that imports them (host packages, its `peerDependencies`, stay external and are passed in). On Node a
