@@ -229,7 +229,7 @@ async function pump(body: ReadableStream<Uint8Array>, res: ServerResponse): Prom
 	const cancel = (): void => void reader.cancel().catch(() => {});
 	res.once("close", cancel);
 	for (;;) {
-		let next: ReadableStreamReadResult<Uint8Array>;
+		let next: Awaited<ReturnType<typeof reader.read>>;
 		try {
 			next = await reader.read();
 		} catch {

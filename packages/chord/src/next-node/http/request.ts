@@ -108,7 +108,7 @@ export class WebRequest implements HttpRequest {
 		let read = 0;
 		try {
 			for (;;) {
-				let next: ReadableStreamReadResult<Uint8Array>;
+				let next: Awaited<ReturnType<typeof reader.read>>;
 				try {
 					next = await reader.read();
 				} catch {

@@ -95,7 +95,7 @@ export function webResponse(answer: Answer): Response {
 	// Bodies are bytes over plain `ArrayBuffer`s (never shared memory); the DOM types ask for exactly that.
 	const headers = new Headers();
 	for (const [name, value] of answer.headers.lines()) headers.append(name, value);
-	return new Response(answer.body as BodyInit | null, { status: answer.status, headers });
+	return new Response(answer.body as ConstructorParameters<typeof Response>[0], { status: answer.status, headers });
 }
 
 /**
