@@ -1399,6 +1399,25 @@ describe("ExtensionRunner", () => {
 		});
 	});
 
+	describe("rpc exposure", () => {
+		it("records exposed channels on the runtime until unexposed", async () => {
+			const runtime = createExtensionRuntime();
+			const extension = await loadExtensionFromFactory(
+				(pi) => {
+					pi.rpc.expose("pulse:tps");
+					const unexpose = pi.rpc.expose("andon:state");
+					unexpose();
+				},
+				tempDir,
+				createEventBus(),
+				runtime,
+			);
+
+			expect(extension).toBeDefined();
+			expect([...runtime.rpcChannels]).toEqual(["pulse:tps"]);
+		});
+	});
+
 	describe("hasHandlers", () => {
 		it("returns true when handlers exist for event type", async () => {
 			const extCode = `
