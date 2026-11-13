@@ -180,6 +180,8 @@ function omitReplacedExtensions(
 
 export interface ResourceLoader {
 	getExtensions(): LoadExtensionsResult;
+	/** The bus extensions share, so an embedding client can subscribe to exposed channels. */
+	getEventBus?(): EventBus;
 	getSkills(): { skills: Skill[]; diagnostics: ResourceDiagnostic[] };
 	getPrompts(): { prompts: PromptTemplate[]; diagnostics: ResourceDiagnostic[] };
 	getThemes(): { themes: Theme[]; diagnostics: ResourceDiagnostic[] };
@@ -456,6 +458,11 @@ export class DefaultResourceLoader implements ResourceLoader {
 
 	getExtensions(): LoadExtensionsResult {
 		return this.extensionsResult;
+	}
+
+	/** The bus extensions share, so an embedding client can subscribe to exposed channels. */
+	getEventBus(): EventBus {
+		return this.eventBus;
 	}
 
 	getSkills(): { skills: Skill[]; diagnostics: ResourceDiagnostic[] } {

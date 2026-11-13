@@ -1971,6 +1971,21 @@ pi.events.on("my:event", (data) => { ... });
 pi.events.emit("my:event", { ... });
 ```
 
+### pi.rpc.expose(channel)
+
+Forward an `pi.events` channel to an embedding RPC client as
+`{ type: "custom_event", channel, data, at }`. It is a no-op outside RPC mode and
+returns an unsubscribe. Use it for live state worth streaming but not worth
+persisting, such as a rate or a context estimate:
+
+```typescript
+const unexpose = pi.rpc.expose("pulse:tps");
+pi.events.emit("pulse:tps", { tps: 42 });
+```
+
+Expose channels during the extension factory or `session_start`; a session
+reload re-binds the set.
+
 ### pi.registerProvider(name, config)
 
 Register or override a model provider dynamically. Useful for proxies, custom endpoints, or team-wide model configurations.

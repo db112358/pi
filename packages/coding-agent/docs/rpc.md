@@ -28,6 +28,7 @@ The protocol has four record families:
 | stdin | Command | Ask Pi to prompt, inspect state, change configuration, or manage the session |
 | stdout | `response` | Report whether one command succeeded and return any command data |
 | stdout | Session event | Stream run, message, tool, queue, compaction, and retry activity |
+| stdout | Extension event | Forward a bus channel an extension exposed with `pi.rpc.expose` |
 | Both | Extension UI record | Forward supported extension interactions between Pi and the client |
 
 See [RPC Commands](rpc-commands.md), [JSON Event Stream](json.md), and [RPC Extension UI](rpc-extension-ui.md) for the canonical record definitions.
@@ -46,6 +47,20 @@ Use unique IDs whenever more than one command can be outstanding. Command handli
 Session events generally have no command ID because they describe session activity. `bash_execution_update` is the exception: when the originating [`bash`](rpc-commands.md#bash) command has an ID, its output events repeat that ID.
 
 An `extension_ui_response` uses the ID supplied by its `extension_ui_request`. It does not produce a normal command response.
+
+### Extension events
+
+An extension can forward an `pi.events` channel to the client with
+`pi.rpc.expose(channel)`. Each emit on that channel becomes its own record:
+
+```json
+{"type":"custom_event","channel":"pulse:tps","data":{"tps":42},"at":1762455598261}
+```
+
+`custom_event` is ephemeral: it has no session seq, is never written to the
+session file, and is delivered only while the client is connected. `at` is the
+time the record was written, in milliseconds since the epoch. Expose channels
+during extension load or `session_start`; a session reload re-binds them.
 
 ## Framing
 

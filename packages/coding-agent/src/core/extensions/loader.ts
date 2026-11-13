@@ -205,6 +205,7 @@ export function createExtensionRuntime(): ExtensionRuntime {
 			for (const unsubscribe of eventBusUnsubscribers) unsubscribe();
 			eventBusUnsubscribers.clear();
 		},
+		rpcChannels: new Set<string>(),
 		trackEventBusSubscription: (unsubscribe) => {
 			let active = true;
 			const trackedUnsubscribe = () => {
@@ -523,6 +524,15 @@ function createExtensionAPI(
 		unregisterVirtualModel(provider: string, id: string) {
 			assertActive();
 			applyRuntimeChange(() => runtime.unregisterVirtualModel(provider, id));
+		},
+
+		rpc: {
+			expose(channel) {
+				assertActive();
+				if (!channel) throw new Error("pi.rpc.expose requires a channel");
+				runtime.rpcChannels.add(channel);
+				return () => runtime.rpcChannels.delete(channel);
+			},
 		},
 
 		events: {

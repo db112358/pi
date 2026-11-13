@@ -248,6 +248,15 @@ export type RpcResponse =
 // Extension UI Events (stdout)
 // ============================================================================
 
+/** An extension event forwarded over the RPC stream (see `pi.rpc.expose`). */
+export interface RpcCustomEvent {
+	type: "custom_event";
+	channel: string;
+	data: unknown;
+	/** When the event was forwarded, ms since epoch. */
+	at: number;
+}
+
 /** Emitted when an extension needs user input */
 export type RpcExtensionUIRequest =
 	| { type: "extension_ui_request"; id: string; method: "select"; title: string; options: string[]; timeout?: number }

@@ -29,6 +29,7 @@ import {
 import { killTrackedDetachedChildren } from "../../utils/shell.ts";
 import { type Theme, theme } from "../interactive/theme/theme.ts";
 import { toJsonEvent } from "../json-event.ts";
+import { bridgeCustomEvents } from "./custom-events.ts";
 import { attachJsonlLineReader, serializeJsonLine } from "./jsonl.ts";
 import type {
 	RpcCommand,
@@ -57,6 +58,7 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime): Promise<neve
 	let session = runtimeHost.session;
 	let unsubscribe: (() => void) | undefined;
 	let unsubscribeBackpressure: (() => void) | undefined;
+	let unsubscribeCustom: (() => void) | undefined;
 
 	const output = (obj: RpcResponse | RpcExtensionUIRequest | object) => {
 		writeRawStdout(serializeJsonLine(obj));
@@ -377,6 +379,16 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime): Promise<neve
 		unsubscribeBackpressure = session.agent.subscribe(async () => {
 			await waitForRawStdoutBackpressure();
 		});
+
+		unsubscribeCustom?.();
+		const bus = session.resourceLoader.getEventBus?.();
+		if (bus) {
+			unsubscribeCustom = bridgeCustomEvents(
+				bus,
+				session.resourceLoader.getExtensions().runtime.rpcChannels,
+				output,
+			);
+		}
 	};
 
 	const registerSignalHandlers = (): void => {
@@ -755,6 +767,8 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime): Promise<neve
 		shuttingDown = true;
 		unsubscribe?.();
 		unsubscribeBackpressure?.();
+		unsubscribeCustom?.();
+		unsubscribeCustom = undefined;
 		await runtimeHost.dispose();
 		detachInput();
 		process.stdin.pause();
