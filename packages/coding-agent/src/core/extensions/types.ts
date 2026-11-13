@@ -2002,6 +2002,15 @@ export interface ExtensionAPI {
 
 	/** Shared event bus for extension communication. */
 	events: EventBus;
+
+	/**
+	 * Forward an event-bus channel to an embedding RPC client. The client
+	 * receives `{ type: "custom_event", channel, data, at }` lines. No-op in
+	 * the other modes; returns an unsubscribe.
+	 */
+	rpc: {
+		expose(channel: string): () => void;
+	};
 }
 
 // ============================================================================
@@ -2254,6 +2263,8 @@ export interface ExtensionRuntimeState {
 	invalidate: (message?: string) => void;
 	/** Retain an event-bus subscription until this runtime is invalidated. */
 	trackEventBusSubscription: (unsubscribe: () => void) => () => void;
+	/** Channels extensions exposed to an embedding RPC client. */
+	rpcChannels: Set<string>;
 	/**
 	 * Report an error thrown by a `pi.events` handler. Dropped before the runner exists; the runner
 	 * replaces this to call its emitError() until the runner is invalidated.
